@@ -102,6 +102,26 @@ Panel {
   property string quickAddText: ""
   property bool quickAddSubmitting: false
 
+  // Live read of the quick-add line. The entry grammar (@when, !due, #list,
+  // +tag, "notes") is shared with things-tui — see Model.parseEntry — and the
+  // preview under the field shows what it resolved to before you commit.
+  readonly property var quickAddParsed: Model.parseEntry(root.quickAddText)
+  readonly property string quickAddPreview: {
+    if (Model.safeTrim(root.quickAddText) === "") return ""
+    var p = root.quickAddParsed
+    var bits = []
+    if (p.when) bits.push("when " + Model.prettyWhen(p.when))
+    if (p.deadline) bits.push("due " + Model.prettyWhen(p.deadline))
+    else if (p.deadline === "") bits.push("due cleared")
+    if (p.dest) bits.push("in " + p.dest + (root.resolveDestId(p.dest) === "" ? "?" : ""))
+    if (p.tags) bits.push("tags " + p.tags.replace(/,/g, ", "))
+    if (p.notes) {
+      var n = p.notes.replace(/\n/g, " ")
+      bits.push("notes " + (n.length > 30 ? n.substring(0, 29) + "\u2026" : n))
+    }
+    return bits.join("   ")
+  }
+
   // Inline title editing. -1 = no row being edited.
   property int editingTaskIndex: -1
   property string editDraft: ""
@@ -118,6 +138,21 @@ Panel {
   property string moveTaskTitle: ""
   property int moveCursor: 0
   property var projects: []
+
+  // Typed date in the When? picker, for everything the five presets don't
+  // cover. Same grammar as the quick-add line (Model.parseWhen).
+  property string pickerDateText: ""
+  readonly property var pickerTypedWhen: Model.safeTrim(root.pickerDateText) === ""
+    ? null : Model.parseWhen(root.pickerDateText)
+  // While there is text in the date field, that text — not the preset under
+  // the cursor — is what Enter commits. The list dims and drops its highlight
+  // to say so, and the preview spells out the target.
+  readonly property bool pickerTyping: Model.safeTrim(root.pickerDateText) !== ""
+  readonly property string pickerDatePreview: {
+    if (!root.pickerTyping) return ""
+    return root.pickerTypedWhen ? "Enter \u2192 " + Model.prettyWhen(root.pickerTypedWhen)
+      : "? no date there \u2014 Enter does nothing"
+  }
 
   readonly property var whenOptions: [
     { label: "Today", icon: "\uf005", kind: "when", value: "today" },
@@ -272,12 +307,13 @@ Panel {
     var script = 'if ! command -v things3 >/dev/null 2>&1; then echo "things3 CLI not found" >&2; exit 127; fi\n'
       + 'ERR=$(mktemp); trap \'rm -f "$ERR"\' EXIT\n'
       + 'T=$(timeout 25 things3 --json today 2>"$ERR") || T=$(things3 --no-sync --json today 2>"$ERR") || { cat "$ERR" >&2; exit 1; }\n'
+      + 'U=$(things3 --no-sync --json upcoming 2>"$ERR") || U="[]"\n'
       + 'I=$(things3 --no-sync --json inbox 2>"$ERR") || I="[]"\n'
       + 'D=$(things3 --no-sync --json logbook --from ' + from + ' 2>"$ERR") || D="[]"\n'
       + 'P=$(things3 --no-sync --json projects 2>"$ERR") || P="[]"\n'
       + (fast ? 'PD="{}"\n'
         : 'PD=$(printf %s "$P" | jq -r \'.[] | select(.status == "incomplete") | .id\' | while read -r pid; do things3 --no-sync --json project "$pid" 2>/dev/null | jq --arg id "$pid" \'{key: $id, value: [.[] | {id, title, status, flags, dates, indexes}]}\'; done | jq -s \'from_entries\') || PD="{}"\n')
-      + 'printf \'{"today":%s,"inbox":%s,"done":%s,"projects":%s,"projectTasks":%s}\' "$T" "$I" "$D" "$P" "$PD"\n'
+      + 'printf \'{"today":%s,"upcoming":%s,"inbox":%s,"done":%s,"projects":%s,"projectTasks":%s}\' "$T" "$U" "$I" "$D" "$P" "$PD"\n'
     fetchProc.command = ["bash", "-c", script]
     fetchProc.running = true
 
@@ -541,10 +577,27 @@ Panel {
     })
   }
 
-  // ---- Quick add. Today view schedules the new task for today; the other
-  //      views drop it in the Inbox (the CLI's default container).
+  // Match a typed #list against the loaded projects: exact title first, then
+  // the first substring hit. "" means nothing matched — the preview flags it
+  // with a "?" and the task still lands in the default container.
+  function resolveDestId(name) {
+    var n = Model.safeTrim(name).toLowerCase()
+    if (n === "") return ""
+    if (n === "inbox") return "inbox"
+    var i
+    for (i = 0; i < root.projects.length; i++)
+      if (String(root.projects[i].title || "").toLowerCase() === n) return root.projects[i].id
+    for (i = 0; i < root.projects.length; i++)
+      if (String(root.projects[i].title || "").toLowerCase().indexOf(n) !== -1) return root.projects[i].id
+    return ""
+  }
+
+  // ---- Quick add. An explicit @when in the line wins; failing that the
+  //      Today view schedules for today and the other views drop it in the
+  //      Inbox (the CLI's default container).
   function submitQuickAdd() {
-    var title = Model.safeTrim(root.quickAddText)
+    var parsed = root.quickAddParsed
+    var title = Model.safeTrim(parsed.title)
     if (title === "" || root.quickAddSubmitting) return
     root.noteMutation()
     root.quickAddSubmitting = true
@@ -560,7 +613,9 @@ Panel {
       dates: {}, indexes: {}, flags: {}
     }
     createProc.pendingSynthId = synth.id
-    createProc.pendingTitle = title
+    // The RAW line, not the parsed title — a failed add restores exactly what
+    // was typed, @dates and all, so nothing has to be retyped.
+    createProc.pendingTitle = root.quickAddText
     createProc.pendingAnchorId = ""
     if (root.view === "today") {
       if (root.todayTasks.length > 0) createProc.pendingAnchorId = root.todayTasks[0].id
@@ -579,14 +634,36 @@ Panel {
     root.noteAdded([synth.id])
 
     var cmd = ["timeout", "25", "things3", "--no-color", "new", title]
-    if (root.view === "today") cmd = cmd.concat(["--when", "today"])
-    else if (root.view === "projects" && root.activeProject) cmd = cmd.concat(["-i", root.activeProject.id])
+    var when = parsed.when
+    if (!when && root.view === "today") when = "today"
+    if (when) cmd = cmd.concat(["--when", when])
+    if (parsed.deadline) cmd = cmd.concat(["--deadline", parsed.deadline])
+    if (parsed.tags) cmd = cmd.concat(["--tags", parsed.tags])
+    if (parsed.notes) cmd = cmd.concat(["--notes", parsed.notes])
+    var destId = root.resolveDestId(parsed.dest)
+    if (destId !== "" && destId !== "inbox") cmd = cmd.concat(["-i", destId])
+    else if (destId === "" && root.view === "projects" && root.activeProject)
+      cmd = cmd.concat(["-i", root.activeProject.id])
     createProc.command = cmd
     createProc.running = true
 
     // Field clears right away so back-to-back adds feel instant.
     root.quickAddText = ""
     quickAddField.text = ""
+  }
+
+  // Hand off to the full app — things-tui in its own window — for everything
+  // this panel deliberately doesn't show: the notes body, the checklist,
+  // repeat rules. The panel gets out of the way on the way out.
+  function openInApp() {
+    Quickshell.execDetached(["uwsm-app", "--", "things.desktop"])
+    root.close()
+  }
+
+  function openUrl(url) {
+    if (Model.safeTrim(url) === "") return
+    Quickshell.execDetached(["uwsm-app", "--", "xdg-open", url])
+    root.close()
   }
 
   // ---- Inline title editing (e, or the row's pencil button).
@@ -663,6 +740,8 @@ Panel {
     root.moveTaskId = task.id
     root.moveTaskTitle = task.title || ""
     root.moveCursor = 0
+    root.pickerDateText = ""
+    pickerDateField.text = ""
     root.moveOverlayOpen = true
   }
 
@@ -678,6 +757,8 @@ Panel {
     root.moveOverlayOpen = false
     root.moveTaskId = ""
     root.moveTaskTitle = ""
+    root.pickerDateText = ""
+    pickerDateField.text = ""
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
 
@@ -760,6 +841,14 @@ Panel {
       if (root.whenOptions[i].value === value) { root.applyPickerOption(root.whenOptions[i], task.id); return }
   }
 
+  // Enter in the picker's date field schedules straight to what was typed,
+  // bypassing the five presets entirely.
+  function applyTypedWhen() {
+    var when = root.pickerTypedWhen
+    if (!when) return
+    root.applyPickerOption({ kind: "when", value: when, label: Model.prettyWhen(when) })
+  }
+
   function applyPickerOption(option, taskIdOverride) {
     var taskId = taskIdOverride || root.moveTaskId
     if (!taskIdOverride) root.closeMoveOverlay()
@@ -823,7 +912,7 @@ Panel {
         try {
           var parsed = JSON.parse(raw)
           root.applyFetched(
-            Model.shapeToday(parsed.today),
+            Model.shapeToday(parsed.today, parsed.upcoming),
             Model.shapeDone(parsed.done),
             Model.shapeInbox(parsed.inbox),
             (parsed.projects || []).filter(function(p) {
@@ -1046,6 +1135,10 @@ Panel {
     readonly property bool completing: task ? root.completingTaskIds.indexOf(task.id) !== -1 : false
     readonly property bool doneRow: root.view === "done"
     readonly property string caption: Model.taskCaption(task, root.activeProject ? "project" : root.view)
+    // A task whose notes are just a pasted link is really a bookmark — the
+    // snippet shows it as one, and the URL makes the line clickable.
+    readonly property string notesLine: Model.notesSnippet(task)
+    readonly property string notesUrl: Model.firstUrl(task)
     readonly property bool overdue: Model.deadlineOverdue(task)
     readonly property bool editing: root.editingTaskIndex === rowIndex
     // "Struck" = the state the row is animating toward: marking done strikes
@@ -1230,6 +1323,36 @@ Panel {
         onTextChanged: if (row.editing) root.editDraft = text
         onAccepted: root.commitEditTask()
         Keys.onEscapePressed: root.cancelEditTask()
+      }
+
+      // One faint line of the notes, so a task that is really a link or a
+      // stashed thought says so without being opened. Kept to a single
+      // elided line — "O" is the way to the full text.
+      Text {
+        visible: row.notesLine !== "" && !row.editing
+        width: parent.width
+        text: row.notesLine
+        elide: Text.ElideRight
+        maximumLineCount: 1
+        opacity: row.struck ? 0.4 : 0.85
+        color: row.notesUrl !== "" ? Color.accent : Qt.darker(root.contentForeground, 1.6)
+        font.family: root.contentFontFamily
+        font.pixelSize: Style.font.caption
+        font.underline: row.notesUrl !== "" && notesHover.hovered
+
+        HoverHandler {
+          id: notesHover
+          enabled: row.notesUrl !== ""
+          cursorShape: Qt.PointingHandCursor
+        }
+
+        // Opening the link is the whole point of surfacing it — this sits
+        // above the row's click-to-edit handler so it wins the click.
+        MouseArea {
+          anchors.fill: parent
+          enabled: row.notesUrl !== ""
+          onClicked: root.openUrl(row.notesUrl)
+        }
       }
 
       Text {
@@ -1462,6 +1585,7 @@ Panel {
         if (t === "s" || t === "S") { root.openWhenOverlay(root.selectedTaskIndex); return }
         if (t === "t" || t === "T") { root.selectView("today"); return }
         if (t === "d" || t === "D") { root.selectView("done"); return }
+        if (t === "o" || t === "O") { root.openInApp(); return }
         if (t === "i" || t === "I") root.selectView("inbox")
       }
 
@@ -1650,9 +1774,21 @@ Panel {
               Button {
                 id: addButton
                 text: root.quickAddSubmitting ? "Adding…" : "Add"
-                enabled: !root.quickAddSubmitting && root.quickAddText.trim() !== ""
+                enabled: !root.quickAddSubmitting && Model.safeTrim(root.quickAddParsed.title) !== ""
                 onClicked: root.submitQuickAdd()
               }
+            }
+
+            // What the entry grammar made of the line. Hidden until it finds
+            // something, so a plain title reads exactly as it did before.
+            Text {
+              visible: root.quickAddPreview !== ""
+              width: parent.width
+              text: root.quickAddPreview
+              elide: Text.ElideRight
+              color: Qt.darker(root.contentForeground, 1.3)
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.bodySmall
             }
 
             // Segmented-control look: zero spacing between the three
@@ -1697,7 +1833,13 @@ Panel {
             ListView {
               id: taskListView
               width: parent.width
-              height: Math.min(contentHeight, Style.space(300))
+              // Row highlights bleed Style.spacing.xs past the row on both
+              // edges (see the TaskRow backdrop). Without that much slack
+              // inside the clip, the first and last rows get their highlight
+              // sheared off — including after scrolling to either end.
+              topMargin: Style.spacing.xs
+              bottomMargin: Style.spacing.xs
+              height: Math.min(contentHeight + topMargin + bottomMargin, Style.space(300))
               spacing: Style.spacing.sm
               clip: true
               boundsBehavior: Flickable.StopAtBounds
@@ -1963,6 +2105,8 @@ Panel {
                   id: moveListView
                   width: parent.width
                   height: Math.min(contentHeight, Style.space(260))
+                  // Dimmed while a typed date owns Enter.
+                  opacity: root.pickerTyping ? 0.45 : 1.0
                   clip: true
                   boundsBehavior: Flickable.StopAtBounds
                   interactive: contentHeight > height
@@ -1981,7 +2125,8 @@ Panel {
                     Rectangle {
                       anchors.fill: parent
                       radius: Style.cornerRadius
-                      visible: moveDelegate.index === root.moveCursor || moveHover.hovered
+                      visible: (moveDelegate.index === root.moveCursor && !root.pickerTyping)
+                        || moveHover.hovered
                       color: Style.hoverFillFor(root.contentForeground, Color.accent)
                     }
 
@@ -2007,12 +2152,46 @@ Panel {
                     }
                   }
                 }
+
+                // Anything the five presets don't cover: "next sat",
+                // "aug 24", "12/25", "2026-09-01". When? flavor only — the
+                // Move picker has no use for a date.
+                TextField {
+                  id: pickerDateField
+                  visible: root.pickerMode === "when"
+                  width: parent.width
+                  placeholderText: "or type a date…"
+                  onTextChanged: root.pickerDateText = text
+                  onAccepted: root.applyTypedWhen()
+                  // First Escape abandons the typed date and hands the
+                  // presets back; a second one closes the picker.
+                  Keys.onEscapePressed: {
+                    if (root.pickerTyping) {
+                      text = ""
+                      pickerKeys.forceActiveFocus()
+                    } else {
+                      root.closeMoveOverlay()
+                    }
+                  }
+                }
+
+                Text {
+                  visible: root.pickerMode === "when" && root.pickerDatePreview !== ""
+                  width: parent.width
+                  text: root.pickerDatePreview
+                  elide: Text.ElideRight
+                  color: root.pickerTypedWhen ? Color.accent
+                    : Qt.darker(root.contentForeground, 1.3)
+                  font.family: root.contentFontFamily
+                  font.pixelSize: Style.font.bodySmall
+                }
               }
             }
           }
         }
 
         Item {
+          id: pickerKeys
           anchors.fill: parent
           focus: root.moveOverlayOpen
           Keys.onEscapePressed: root.closeMoveOverlay()
@@ -2020,7 +2199,19 @@ Panel {
             if (event.key === Qt.Key_Down || (event.text === "j")) { root.moveMoveCursor(1); event.accepted = true }
             else if (event.key === Qt.Key_Up || (event.text === "k")) { root.moveMoveCursor(-1); event.accepted = true }
             else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
-              root.applyPickerOption(root.pickerOptions[root.moveCursor])
+              if (root.pickerTypedWhen) root.applyTypedWhen()
+              else root.applyPickerOption(root.pickerOptions[root.moveCursor])
+              event.accepted = true
+            }
+            // Anything else printable starts typing a date. j/k stay list
+            // navigation, so a month beginning with one wants either the day
+            // first ("24 jan") or a Tab into the field.
+            else if (root.pickerMode === "when"
+                     && (event.key === Qt.Key_Tab
+                         || (event.text.length === 1 && event.text >= " " && event.text <= "~"))) {
+              if (event.key !== Qt.Key_Tab) pickerDateField.text += event.text
+              pickerDateField.cursorPosition = pickerDateField.text.length
+              pickerDateField.forceActiveFocus()
               event.accepted = true
             }
           }
@@ -2102,6 +2293,8 @@ Panel {
                       + "e — rename (or double-click)\n"
                       + "s — when\u2026 (schedule)    m — move to\u2026\n"
                       + "     in either picker: \u2191/\u2193 or k/j, Enter picks, Esc closes\n"
+                      + "     in when\u2026: type a date — \"next sat\", \"aug 24\", \"12/25\"\n"
+                      + "o — open the full app (notes, checklist, repeats)\n"
                       + "x — delete (or right-click)\n"
                       + "Shift+P — pin/unpin as \"now\" (or right-click)\n"
                       + "q — quick add\n"
