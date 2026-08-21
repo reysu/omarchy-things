@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "reysu.things",
+  "name": "Things",
+  "version": "1.0.0",
+  "author": "reysu",
+  "license": "MIT",
+  "description": "Things 3 task count in the bar (Today / Done today / Inbox, middle-click to cycle), with a panel to view tasks, check them off, and quick-add — backed by the things3 cloud CLI.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Things",
+    "description": "Due-today count pill with a task list popup",
+    "category": "Productivity",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}
