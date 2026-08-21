@@ -110,28 +110,41 @@ Panel {
   property string pendingDeleteTaskId: ""
   property string pendingDeleteTaskTitle: ""
 
-  // "Move to…" overlay: schedule targets plus the project list.
+  // Picker overlay, in Things' own two flavors: "when" schedules a task,
+  // "move" files it under a project (or the Inbox). Same card, same keys.
   property bool moveOverlayOpen: false
+  property string pickerMode: "move"
   property string moveTaskId: ""
   property string moveTaskTitle: ""
   property int moveCursor: 0
   property var projects: []
 
+  readonly property var whenOptions: [
+    { label: "Today", icon: "\uf005", kind: "when", value: "today" },
+    { label: "This Evening", icon: "\uf186", kind: "when", value: "evening" },
+    { label: "Tomorrow", icon: "\uf064", kind: "when", value: "tomorrow" },
+    { label: "Anytime", icon: "\uf073", kind: "when", value: "anytime" },
+    { label: "Someday", icon: "\uf187", kind: "when", value: "someday" }
+  ]
+
   readonly property var moveOptions: {
-    var opts = [
-      { label: "Today", kind: "when", value: "today" },
-      { label: "This Evening", kind: "when", value: "evening" },
-      { label: "Tomorrow", kind: "when", value: "tomorrow" },
-      { label: "Anytime", kind: "when", value: "anytime" },
-      { label: "Someday", kind: "when", value: "someday" },
-      { label: "Inbox", kind: "move", value: "inbox" }
-    ]
+    var opts = [{ label: "Inbox", icon: "\uf01c", kind: "move", value: "inbox" }]
     for (var i = 0; i < root.projects.length; i++) {
       var p = root.projects[i]
-      if (p && p.id && p.title) opts.push({ label: p.title, kind: "move", value: p.id, project: true })
+      if (p && p.id && p.title) opts.push({ label: p.title, icon: "\uf10c", kind: "move", value: p.id })
     }
     return opts
   }
+
+  // Ctrl-shortcuts act on the selected task, so they stay out of the way
+  // whenever some other surface owns the keyboard (overlays, rename field,
+  // quick-add) or the list isn't showing tasks at all (project list).
+  readonly property bool taskShortcutsEnabled: root.opened && !root.helpOpen
+    && !root.moveOverlayOpen && !root.contextMenuOpen && !confirmDialog.opened
+    && root.editingTaskIndex === -1 && !quickAddField.activeFocus && !root.projectListMode
+
+  readonly property var pickerOptions: root.pickerMode === "when" ? root.whenOptions : root.moveOptions
+  readonly property string pickerTitle: (root.pickerMode === "when" ? "When?  " : "Move to\u2026  ") + root.moveTaskTitle
 
   readonly property int panelWidth: 340
 
@@ -640,15 +653,25 @@ Panel {
     deleteProc.running = true
   }
 
-  // ---- Move (m, or the row's arrow button): schedule targets + projects.
-  function openMoveOverlay(index) {
+  // ---- Picker (s / Ctrl+S for when, m / Ctrl+Shift+M for move).
+  function openPicker(index, mode) {
     if (index < 0 || index >= root.tasks.length) return
+    if (root.projectListMode) return
     var task = root.tasks[index]
     if (!task || task._removing || String(task.id).indexOf("pending-") === 0) return
+    root.pickerMode = mode
     root.moveTaskId = task.id
     root.moveTaskTitle = task.title || ""
     root.moveCursor = 0
     root.moveOverlayOpen = true
+  }
+
+  function openMoveOverlay(index) {
+    root.openPicker(index, "move")
+  }
+
+  function openWhenOverlay(index) {
+    root.openPicker(index, "when")
   }
 
   function closeMoveOverlay() {
@@ -709,25 +732,37 @@ Panel {
     var isPinned = t && t.id === root.pinnedId
     return [
       { icon: "\uf08d", label: isPinned ? "Unpin" : "Pin", action: "pin" },
+      { icon: "\uf073", label: "When\u2026", action: "when" },
       { icon: "\uf064", label: "Move to\u2026", action: "move" },
       { icon: "\uf1f8", label: "Delete", action: "delete" }
     ]
   }
 
   function moveMoveCursor(delta) {
-    if (root.moveOptions.length === 0) return
+    if (root.pickerOptions.length === 0) return
     var next = root.moveCursor + delta
     if (next < 0) next = 0
-    if (next > root.moveOptions.length - 1) next = root.moveOptions.length - 1
+    if (next > root.pickerOptions.length - 1) next = root.pickerOptions.length - 1
     root.moveCursor = next
     Qt.callLater(function() {
       if (moveListView.count > 0) moveListView.positionViewAtIndex(root.moveCursor, ListView.Contain)
     })
   }
 
-  function applyMoveOption(option) {
-    var taskId = root.moveTaskId
-    root.closeMoveOverlay()
+  // Schedule the selected task straight from a key (Ctrl+T / Ctrl+E /
+  // Ctrl+O), no picker in between — Things' own direct shortcuts.
+  function scheduleSelected(value) {
+    if (root.projectListMode) return
+    if (root.selectedTaskIndex < 0 || root.selectedTaskIndex >= root.tasks.length) return
+    var task = root.tasks[root.selectedTaskIndex]
+    if (!task || task._removing || String(task.id).indexOf("pending-") === 0) return
+    for (var i = 0; i < root.whenOptions.length; i++)
+      if (root.whenOptions[i].value === value) { root.applyPickerOption(root.whenOptions[i], task.id); return }
+  }
+
+  function applyPickerOption(option, taskIdOverride) {
+    var taskId = taskIdOverride || root.moveTaskId
+    if (!taskIdOverride) root.closeMoveOverlay()
     if (!option || taskId === "") return
     // Collapse the row right away when the move takes it out of this view —
     // the CLI catches up behind the animation.
@@ -1424,9 +1459,58 @@ Panel {
         if (t === "q" || t === "Q") { quickAddField.forceActiveFocus(); return }
         if (t === "e" || t === "E") { root.startEditTask(root.selectedTaskIndex); return }
         if (t === "m" || t === "M") { root.openMoveOverlay(root.selectedTaskIndex); return }
+        if (t === "s" || t === "S") { root.openWhenOverlay(root.selectedTaskIndex); return }
         if (t === "t" || t === "T") { root.selectView("today"); return }
         if (t === "d" || t === "D") { root.selectView("done"); return }
         if (t === "i" || t === "I") root.selectView("inbox")
+      }
+
+      // ---- Things' own shortcuts, Cmd → Ctrl. Kept identical to the Mac
+      //      app so muscle memory carries over: ⌘S When, ⌘⇧M Move,
+      //      ⌘T Today, ⌘E This Evening, ⌘O Someday, ⌘K complete,
+      //      ⌘N new to-do.
+      Shortcut {
+        sequence: "Ctrl+S"
+        enabled: root.taskShortcutsEnabled
+        onActivated: root.openWhenOverlay(root.selectedTaskIndex)
+      }
+
+      Shortcut {
+        sequence: "Ctrl+Shift+M"
+        enabled: root.taskShortcutsEnabled
+        onActivated: root.openMoveOverlay(root.selectedTaskIndex)
+      }
+
+      Shortcut {
+        sequence: "Ctrl+T"
+        enabled: root.taskShortcutsEnabled
+        onActivated: root.scheduleSelected("today")
+      }
+
+      Shortcut {
+        sequence: "Ctrl+E"
+        enabled: root.taskShortcutsEnabled
+        onActivated: root.scheduleSelected("evening")
+      }
+
+      Shortcut {
+        sequence: "Ctrl+O"
+        enabled: root.taskShortcutsEnabled
+        onActivated: root.scheduleSelected("someday")
+      }
+
+      Shortcut {
+        sequence: "Ctrl+K"
+        enabled: root.taskShortcutsEnabled
+        onActivated: root.activateSelectedTask()
+      }
+
+      // The one that stays live while typing — it only moves focus.
+      Shortcut {
+        sequence: "Ctrl+N"
+        enabled: root.opened && !root.helpOpen && !root.moveOverlayOpen
+          && !root.contextMenuOpen && !confirmDialog.opened && root.editingTaskIndex === -1
+        onActivated: quickAddField.forceActiveFocus()
       }
 
       Flickable {
@@ -1790,6 +1874,7 @@ Panel {
                       var index = root.contextTaskIndex
                       root.closeContextMenu()
                       if (ctxRow.modelData.action === "pin") root.togglePin(index)
+                      else if (ctxRow.modelData.action === "when") root.openWhenOverlay(index)
                       else if (ctxRow.modelData.action === "move") root.openMoveOverlay(index)
                       else root.requestDeleteTask(index)
                     }
@@ -1866,7 +1951,7 @@ Panel {
 
                 Text {
                   width: parent.width
-                  text: "Move \"" + root.moveTaskTitle + "\" to\u2026"
+                  text: root.pickerTitle
                   elide: Text.ElideRight
                   font.bold: true
                   color: root.contentForeground
@@ -1881,7 +1966,7 @@ Panel {
                   clip: true
                   boundsBehavior: Flickable.StopAtBounds
                   interactive: contentHeight > height
-                  model: root.moveOptions
+                  model: root.pickerOptions
                   currentIndex: root.moveCursor
 
                   FastScroll { parent: moveListView; flickable: moveListView }
@@ -1904,7 +1989,7 @@ Panel {
 
                     MouseArea {
                       anchors.fill: parent
-                      onClicked: root.applyMoveOption(moveDelegate.modelData)
+                      onClicked: root.applyPickerOption(moveDelegate.modelData)
                     }
 
                     Text {
@@ -1914,7 +1999,7 @@ Panel {
                       anchors.right: parent.right
                       anchors.rightMargin: Style.spacing.sm
                       anchors.verticalCenter: parent.verticalCenter
-                      text: (moveDelegate.modelData.project ? "\uf10c  " : "") + moveDelegate.modelData.label
+                      text: moveDelegate.modelData.icon + "  " + moveDelegate.modelData.label
                       elide: Text.ElideRight
                       color: root.contentForeground
                       font.family: root.contentFontFamily
@@ -1935,7 +2020,7 @@ Panel {
             if (event.key === Qt.Key_Down || (event.text === "j")) { root.moveMoveCursor(1); event.accepted = true }
             else if (event.key === Qt.Key_Up || (event.text === "k")) { root.moveMoveCursor(-1); event.accepted = true }
             else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
-              root.applyMoveOption(root.moveOptions[root.moveCursor])
+              root.applyPickerOption(root.pickerOptions[root.moveCursor])
               event.accepted = true
             }
           }
@@ -2015,14 +2100,19 @@ Panel {
                       + "Space or Enter — check off (Done view: un-check)\n"
                       + "Enter on a project — open it (Esc backs out)\n"
                       + "e — rename (or double-click)\n"
-                      + "m — move to\u2026 (or right-click)\n"
-                      + "     in the picker: \u2191/\u2193 or k/j, Enter picks, Esc closes\n"
+                      + "s — when\u2026 (schedule)    m — move to\u2026\n"
+                      + "     in either picker: \u2191/\u2193 or k/j, Enter picks, Esc closes\n"
                       + "x — delete (or right-click)\n"
                       + "Shift+P — pin/unpin as \"now\" (or right-click)\n"
                       + "q — quick add\n"
                       + "r — refresh\n"
                       + "Escape — back / close\n"
                       + "? — toggle this help\n\n"
+                      + "Things-style (⌘ → Ctrl):\n"
+                      + "Ctrl+S — When\u2026    Ctrl+Shift+M — Move to\u2026\n"
+                      + "Ctrl+T — Today    Ctrl+E — This Evening\n"
+                      + "Ctrl+O — Someday    Ctrl+K — complete\n"
+                      + "Ctrl+N — new to-do\n\n"
                       + "Bar pill: middle-click cycles views, right-click syncs.\n"
                       + "Super+Shift+T toggles this panel from anywhere."
                   }
