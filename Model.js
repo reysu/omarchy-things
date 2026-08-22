@@ -523,3 +523,27 @@ function hasArrived(task) {
   var d = localDateIso(task && task.start ? task.start.scheduled_at : "")
   return d !== "" && d <= todayIsoDate()      // ISO dates compare as strings
 }
+
+// Upcoming: everything still ahead, earliest first. The CLI's own upcoming
+// list also carries tasks whose day has already arrived (see hasArrived) —
+// those belong in Today, and shapeToday has already claimed them.
+function shapeUpcoming(list) {
+  var out = (list || []).filter(keep).filter(function(t) {
+    return t.status === "incomplete" && !hasArrived(t)
+  })
+  out.sort(function(a, b) {
+    var aAt = (a.start && a.start.scheduled_at) || "9999"
+    var bAt = (b.start && b.start.scheduled_at) || "9999"
+    if (aAt !== bAt) return aAt < bAt ? -1 : 1
+    var aIdx = a.indexes ? a.indexes.sort_index : 0
+    var bIdx = b.indexes ? b.indexes.sort_index : 0
+    return aIdx - bIdx
+  })
+  return out
+}
+
+// "Tomorrow" / "Sat Aug 29" / "Tue Jan 5 2027" for a task's scheduled day.
+function dayLabel(task) {
+  var d = localDateIso(task && task.start ? task.start.scheduled_at : "")
+  return d === "" ? "Later" : prettyWhen(d)
+}

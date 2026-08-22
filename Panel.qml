@@ -27,7 +27,17 @@ Panel {
   // ---- The active view, shared by the bar pill and the popup tabs:
   //      "today" (due today), "done" (checked off today), "inbox".
   property string view: "today"
-  readonly property var viewOrder: ["today", "done", "inbox", "projects"]
+  readonly property var viewOrder: ["today", "upcoming", "done", "inbox", "projects"]
+
+  // Tab strip. The selected tab shows its icon AND its name; the rest are
+  // icon-only, which is what makes five of them fit in 340px.
+  readonly property var viewTabs: [
+    { view: "today", icon: "\uf005", label: "Today" },
+    { view: "upcoming", icon: "\uf073", label: "Upcoming" },
+    { view: "done", icon: "\uf00c", label: "Done" },
+    { view: "inbox", icon: "\uf01c", label: "Inbox" },
+    { view: "projects", icon: "\uf10c", label: "Projects" }
+  ]
 
   // One combined fetch fills everything at once, so cycling the pill with
   // middle-click flips between already-loaded counts instead of kicking off
@@ -35,6 +45,7 @@ Panel {
   property var todayTasks: []
   property var doneTasks: []
   property var inboxTasks: []
+  property var upcomingTasks: []
   // Projects tab: a map of project id -> all its tasks (feeds the pie
   // progress), plus the project currently drilled into (null = the list).
   property var projectTasks: ({})
@@ -42,6 +53,7 @@ Panel {
   readonly property bool projectListMode: root.view === "projects" && !root.activeProject
 
   readonly property var tasks: root.view === "done" ? root.doneTasks
+    : root.view === "upcoming" ? root.upcomingTasks
     : root.view === "inbox" ? root.inboxTasks
     : root.view === "projects" ? (root.activeProject
       ? Model.shapeProjectTasks(root.projectTasks[root.activeProject.id])
@@ -50,11 +62,13 @@ Panel {
 
   readonly property int barCount: root.view === "projects" ? root.projects.length : root.tasks.length
   readonly property string viewIcon: root.view === "done" ? "\uf00c"
+    : root.view === "upcoming" ? "\uf073"
     : root.view === "inbox" ? "\uf01c"
     : root.view === "projects" ? "\uf10c"
     : "\uf005"
 
   readonly property string viewLabel: root.view === "done" ? "DONE TODAY"
+    : root.view === "upcoming" ? "UPCOMING"
     : root.view === "inbox" ? "INBOX"
     : root.view === "projects" ? "PROJECTS"
     : "TODAY"
@@ -64,6 +78,7 @@ Panel {
     + (root.pinnedTitle !== "" ? " · now: " + root.pinnedTitle : "")
 
   readonly property string emptyStateMessage: root.view === "done" ? "Nothing checked off yet today."
+    : root.view === "upcoming" ? "Nothing scheduled ahead."
     : root.view === "inbox" ? "Inbox zero."
     : root.view === "projects" ? (root.activeProject ? "No open tasks — project done!" : "No projects.")
     : "Nothing due. You're clear."
@@ -208,8 +223,15 @@ Panel {
   }
 
   function taskSectionTitle(index) {
-    if (root.view !== "today" || root.eveningCount === 0) return ""
     if (index < 0 || index >= root.tasks.length) return ""
+    // Upcoming groups by the day a task actually falls on, and only prints a
+    // header when that day changes.
+    if (root.view === "upcoming") {
+      var day = Model.dayLabel(root.tasks[index])
+      if (index > 0 && Model.dayLabel(root.tasks[index - 1]) === day) return ""
+      return day.toUpperCase()
+    }
+    if (root.view !== "today" || root.eveningCount === 0) return ""
     var isEve = Model.isEvening(root.tasks[index])
     if (index > 0 && Model.isEvening(root.tasks[index - 1]) === isEve) return ""
     return isEve ? ("THIS EVENING · " + root.eveningCount)
@@ -357,8 +379,9 @@ Panel {
     return JSON.stringify(flat)
   }
 
-  function applyFetched(newToday, newDone, newInbox, newProjects, newProjectTasks) {
+  function applyFetched(newToday, newUpcoming, newDone, newInbox, newProjects, newProjectTasks) {
     var changed = Model.tasksSignature(newToday) !== Model.tasksSignature(root.todayTasks)
+      || Model.tasksSignature(newUpcoming) !== Model.tasksSignature(root.upcomingTasks)
       || Model.tasksSignature(newDone) !== Model.tasksSignature(root.doneTasks)
       || Model.tasksSignature(newInbox) !== Model.tasksSignature(root.inboxTasks)
       || root.projectsSignature(newProjects, newProjectTasks) !== root.projectsSignature(root.projects, root.projectTasks)
@@ -393,7 +416,9 @@ Panel {
     newToday = mergeAnimating(root.todayTasks, newToday)
     newDone = mergeAnimating(root.doneTasks, newDone)
     newInbox = mergeAnimating(root.inboxTasks, newInbox)
+    newUpcoming = mergeAnimating(root.upcomingTasks, newUpcoming)
     changed = Model.tasksSignature(newToday) !== Model.tasksSignature(root.todayTasks)
+      || Model.tasksSignature(newUpcoming) !== Model.tasksSignature(root.upcomingTasks)
       || Model.tasksSignature(newDone) !== Model.tasksSignature(root.doneTasks)
       || Model.tasksSignature(newInbox) !== Model.tasksSignature(root.inboxTasks)
       || root.projectsSignature(newProjects, newProjectTasks) !== root.projectsSignature(root.projects, root.projectTasks)
@@ -401,6 +426,7 @@ Panel {
     var oldToday = root.todayTasks, oldDone = root.doneTasks, oldInbox = root.inboxTasks
     root.preserveListScroll(function() {
       root.todayTasks = newToday
+      root.upcomingTasks = newUpcoming
       root.doneTasks = newDone
       root.inboxTasks = newInbox
       root.projects = newProjects
@@ -913,6 +939,7 @@ Panel {
           var parsed = JSON.parse(raw)
           root.applyFetched(
             Model.shapeToday(parsed.today, parsed.upcoming),
+            Model.shapeUpcoming(parsed.upcoming),
             Model.shapeDone(parsed.done),
             Model.shapeInbox(parsed.inbox),
             (parsed.projects || []).filter(function(p) {
@@ -1586,6 +1613,8 @@ Panel {
         if (t === "t" || t === "T") { root.selectView("today"); return }
         if (t === "d" || t === "D") { root.selectView("done"); return }
         if (t === "o" || t === "O") { root.openInApp(); return }
+        if (t === "u" || t === "U") { root.selectView("upcoming"); return }
+        if (t === "p") { root.activeProject = null; root.selectView("projects"); return }
         if (t === "i" || t === "I") root.selectView("inbox")
       }
 
@@ -1791,37 +1820,29 @@ Panel {
               font.pixelSize: Style.font.bodySmall
             }
 
-            // Segmented-control look: zero spacing between the three
-            // Buttons, differentiated only by the selected-state fill.
+            // Segmented-control look: zero spacing between the Buttons,
+            // differentiated only by the selected-state fill. Five tabs only
+            // fit in 340px because just the selected one spells its name out;
+            // the rest are their icon alone, and the header right above
+            // already says which view you are in.
             Row {
               width: parent.width
               clip: true
               spacing: 0
 
-              Button {
-                text: "Today"
-                selected: root.view === "today"
-                onClicked: root.selectView("today")
-              }
+              Repeater {
+                model: root.viewTabs
 
-              Button {
-                text: "Done"
-                selected: root.view === "done"
-                onClicked: root.selectView("done")
-              }
-
-              Button {
-                text: "Inbox"
-                selected: root.view === "inbox"
-                onClicked: root.selectView("inbox")
-              }
-
-              Button {
-                text: "Projects"
-                selected: root.view === "projects"
-                onClicked: {
-                  root.activeProject = null
-                  root.selectView("projects")
+                Button {
+                  required property var modelData
+                  readonly property bool isCurrent: root.view === modelData.view
+                  text: isCurrent ? (modelData.icon + "  " + modelData.label) : modelData.icon
+                  selected: isCurrent
+                  tooltipText: modelData.label
+                  onClicked: {
+                    if (modelData.view === "projects") root.activeProject = null
+                    root.selectView(modelData.view)
+                  }
                 }
               }
             }
@@ -1833,13 +1854,15 @@ Panel {
             ListView {
               id: taskListView
               width: parent.width
+              height: Math.min(contentHeight, Style.space(300))
               // Row highlights bleed Style.spacing.xs past the row on both
-              // edges (see the TaskRow backdrop). Without that much slack
-              // inside the clip, the first and last rows get their highlight
-              // sheared off — including after scrolling to either end.
-              topMargin: Style.spacing.xs
-              bottomMargin: Style.spacing.xs
-              height: Math.min(contentHeight + topMargin + bottomMargin, Style.space(300))
+              // edges (see the TaskRow backdrop). The slack has to be real
+              // content, not Flickable margins: it must land inside this
+              // list's clip AND inside contentHeight, so the outer scroll
+              // reserves room for it too. Otherwise the first and last rows
+              // get their rounded highlight sliced flat.
+              header: Item { width: 1; height: Style.spacing.xs }
+              footer: Item { width: 1; height: Style.spacing.xs }
               spacing: Style.spacing.sm
               clip: true
               boundsBehavior: Flickable.StopAtBounds
@@ -2286,7 +2309,7 @@ Panel {
                     font.pixelSize: Style.font.bodySmall
                     text: "Tab — switch between typing box and list\n"
                       + "Shift+Tab — cycle views (works while typing)\n"
-                      + "t / d / i — Today / Done / Inbox\n"
+                      + "t / u / d / i / p — Today / Upcoming / Done / Inbox / Projects\n"
                       + "\u2191/\u2193 or k/j — move selection\n"
                       + "Space or Enter — check off (Done view: un-check)\n"
                       + "Enter on a project — open it (Esc backs out)\n"
