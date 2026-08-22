@@ -547,3 +547,16 @@ function dayLabel(task) {
   var d = localDateIso(task && task.start ? task.start.scheduled_at : "")
   return d === "" ? "Later" : prettyWhen(d)
 }
+
+// Cap a title before it goes into a confirmation message. ConfirmDialog
+// sizes its card from the wrapped message height with no line limit, so a
+// long to-do grows the dialog until its buttons are pushed off the panel.
+function ellipsize(text, max) {
+  var s = safeTrim(text).replace(/\s+/g, " ")
+  if (s.length <= max) return s
+  // Prefer breaking at a space so the tail is not a severed word.
+  var cut = s.substring(0, max)
+  var space = cut.lastIndexOf(" ")
+  if (space > max * 0.6) cut = cut.substring(0, space)
+  return cut + "…"
+}

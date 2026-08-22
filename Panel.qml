@@ -1338,6 +1338,12 @@ Panel {
         font.strikeout: row.struck
         color: root.contentForeground
         wrapMode: Text.WordWrap
+        // Titles are not length-limited in Things, and a pasted paragraph
+        // turns one row into a wall that buries every other to-do and pushes
+        // the row actions out of reach. Three lines, then elide — "e" still
+        // shows the whole thing, and "o" opens it in the full app.
+        maximumLineCount: 3
+        elide: Text.ElideRight
         font.family: root.contentFontFamily
         font.pixelSize: Style.font.body
       }
@@ -1958,7 +1964,7 @@ Panel {
       ConfirmDialog {
         id: confirmDialog
         anchors.fill: parent
-        message: "Delete \"" + root.pendingDeleteTaskTitle + "\"?"
+        message: "Delete \"" + Model.ellipsize(root.pendingDeleteTaskTitle, 72) + "\"?"
         confirmText: "Delete"
         background: Color.popups.background
         foreground: root.contentForeground
