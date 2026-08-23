@@ -79,18 +79,40 @@ pub fn write_auth(email: &str, password: &str) -> Result<std::path::PathBuf> {
 
     let payload = AuthPayload { email, password };
     let serialized = serde_json::to_string(&payload)?;
-    let tmp_path = path.with_extension("tmp");
-    fs::write(&tmp_path, serialized)
-        .with_context(|| format!("Failed writing {}", tmp_path.display()))?;
-    fs::rename(&tmp_path, &path)
-        .with_context(|| format!("Failed finalizing {}", path.display()))?;
 
+    // The staging file has to be private *before* the password reaches it.
+    // Writing at the default mode and chmod'ing only after the rename left a
+    // window where the plaintext password was world-readable, and the fixed
+    // ".tmp" name let anyone able to write the directory pre-plant a symlink
+    // for us to follow. Create it O_EXCL under a pid-unique name at 0600; the
+    // rename then carries that mode onto the final file.
+    let file_name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("auth.json");
+    let tmp_path = parent.join(format!(".{}.{}.tmp", file_name, std::process::id()));
+    let _ = fs::remove_file(&tmp_path);
+
+    let mut opts = fs::OpenOptions::new();
+    opts.write(true).create_new(true);
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
-        let mut perms = fs::metadata(&path)?.permissions();
-        perms.set_mode(0o600);
-        fs::set_permissions(&path, perms)?;
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
+    }
+    let staged = opts.open(&tmp_path).and_then(|mut f| {
+        use std::io::Write;
+        f.write_all(serialized.as_bytes())?;
+        f.sync_all()
+    });
+    if let Err(err) = staged {
+        let _ = fs::remove_file(&tmp_path);
+        return Err(err).with_context(|| format!("Failed writing {}", tmp_path.display()));
+    }
+
+    if let Err(err) = fs::rename(&tmp_path, &path) {
+        let _ = fs::remove_file(&tmp_path);
+        return Err(err).with_context(|| format!("Failed finalizing {}", path.display()));
     }
 
     Ok(path)

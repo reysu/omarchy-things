@@ -22,6 +22,10 @@ const CLIENT_INFO: &str = "eyJkbSI6Ik1hYzE0LDIiLCJsciI6IlVTIiwibmYiOnRydWUsIm5rI
 const APP_ID: &str = "com.culturedcode.ThingsMac";
 const SCHEMA: &str = "301";
 const WRITE_PUSH_PRIORITY: &str = "10";
+/// Ceiling on a single response body. A full first sync of a large database is
+/// a few tens of MB, so this leaves generous headroom while still bounding what
+/// one reply can allocate.
+const MAX_BODY_BYTES: u64 = 256 * 1024 * 1024;
 
 fn app_instance_id() -> String {
     std::env::var("THINGS_APP_INSTANCE_ID").unwrap_or_else(|_| "things3-cloud".to_string())
@@ -92,7 +96,25 @@ impl ThingsCloudClient {
             .send()
             .with_context(|| format!("request failed: {url}"))?;
         let status = resp.status();
-        let text = resp.text().unwrap_or_default();
+        // Read the body through a cap rather than resp.text(): that buffers
+        // whatever the peer sends, so a hostile or malfunctioning endpoint could
+        // grow this allocation until the process dies. Taking one byte past the
+        // limit lets us tell "exactly at the cap" from "overran it".
+        let text = {
+            use std::io::Read;
+            let mut buf = String::new();
+            match resp.take(MAX_BODY_BYTES + 1).read_to_string(&mut buf) {
+                Ok(_) => {
+                    if buf.len() as u64 > MAX_BODY_BYTES {
+                        return Err(anyhow!(
+                            "response body from {url} exceeded {MAX_BODY_BYTES} bytes"
+                        ));
+                    }
+                    buf
+                }
+                Err(_) => String::new(),
+            }
+        };
         if !status.is_success() {
             return Err(anyhow!("HTTP {} for {}: {}", status.as_u16(), url, text));
         }
@@ -166,6 +188,13 @@ impl ThingsCloudClient {
                 .and_then(Value::as_i64)
                 .unwrap_or(0);
             if end >= latest {
+                break;
+            }
+            // A page with no items advances start_index by zero, so continuing
+            // would re-request the same offset forever. The server still claims
+            // more content here, but it is giving us nothing to make progress
+            // with — stop rather than spin. (log_cache's paginator already does.)
+            if item_count == 0 {
                 break;
             }
             start_index += item_count as i64;
