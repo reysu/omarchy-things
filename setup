@@ -11,11 +11,21 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 #    evanpurkhiser/things3-cloud carrying the Task7 fix — so nothing depends
 #    on the AUR package, whose released build silently drops records from
 #    newer Things clients. /usr/local/bin wins over any packaged copy.
-if [[ ! -x /usr/local/bin/things3 ]]; then
+#    Rebuild whenever the bundled source is newer than the installed binary,
+#    not merely when it is missing. `omarchy plugin update` pulls new source
+#    but re-runs this script, and guarding on existence alone meant an updated
+#    plugin silently kept running the old CLI — security fixes included.
+BUILT="$HERE/things3-cloud/target/release/things3"
+if [[ ! -x /usr/local/bin/things3 ]] ||
+   [[ -n "$(find "$HERE/things3-cloud/src" "$HERE/things3-cloud/Cargo.toml" \
+              -newer /usr/local/bin/things3 -print -quit 2>/dev/null)" ]]; then
   command -v cargo >/dev/null 2>&1 || omarchy pkg add rust
-  say "Building the bundled things3 CLI (first run only, about a minute)…"
+  say "Building the bundled things3 CLI (about a minute)…"
   (cd "$HERE/things3-cloud" && cargo build --release)
-  sudo install -Dm755 "$HERE/things3-cloud/target/release/things3" /usr/local/bin/things3
+  if ! cmp -s "$BUILT" /usr/local/bin/things3; then
+    say "Installing the bundled things3 CLI to /usr/local/bin (needs sudo)…"
+    sudo install -Dm755 "$BUILT" /usr/local/bin/things3
+  fi
 fi
 command -v jq >/dev/null 2>&1 || omarchy pkg add jq
 
