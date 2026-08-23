@@ -1,0 +1,58 @@
+```trycmd
+$ run.sh things3 --today-ts 1700000000 --now-ts 1700000000.0 projects new 'HV-MRF-01'
+✓ Created HV-MRF-01  [..]
+{
+  "ancestor_index": 0,
+  "changes": {
+    "[..]": {
+      "e": "Task6",
+      "p": {
+        "acrd": null,
+        "agr": [],
+        "ar": [],
+        "ato": null,
+        "cd": 1700000000.0,
+        "dd": null,
+        "dds": null,
+        "dl": [],
+        "do": 0,
+        "icc": 0,
+        "icp": false,
+        "icsd": null,
+        "ix": 0,
+        "lai": null,
+        "lt": false,
+        "md": 1700000000.0,
+        "nt": {
+          "_t": "tx",
+          "ch": 0,
+          "t": 1,
+          "v": ""
+        },
+        "pr": [],
+        "rmd": null,
+        "rp": null,
+        "rr": null,
+        "rt": [],
+        "sb": 0,
+        "sp": null,
+        "sr": null,
+        "ss": 0,
+        "st": 1,
+        "tg": [],
+        "ti": 0,
+        "tir": null,
+        "tp": 1,
+        "tr": false,
+        "tt": "HV-MRF-01",
+        "xx": {
+          "_t": "oo",
+          "sn": {}
+        }
+      },
+      "t": 0
+    }
+  }
+}
+
+```

@@ -51,10 +51,9 @@ omarchy plugin add https://github.com/reysu/omarchy-things --enable
 ```
 
 The first command installs the widget and asks which bar section to place it
-in. The second installs the [things3-cloud](https://github.com/evanpurkhiser/things3-cloud)
-CLI if it's missing, asks for your Things Cloud email and password (the same
-account as your Mac and iPhone apps), and runs the first sync — when it
-finishes, your tasks are in the bar.
+in. The second builds the bundled Things Cloud CLI (first run only), asks for
+your Things Cloud email and password (the same account as your Mac and iPhone
+apps), and runs the first sync — when it finishes, your tasks are in the bar.
 
 Optional Hyprland keybind to toggle the panel from anywhere:
 
@@ -69,21 +68,16 @@ the panel). Install it with `things-tui/linux/install.sh` (macOS:
 
 ## Requirements
 
-Handled by `setup`; to do it by hand you need the
-[things3-cloud](https://github.com/evanpurkhiser/things3-cloud) CLI
-(`yay -S things3-cloud`) authenticated with `things3 set-auth`, and `jq`.
+Nothing beyond what `setup` handles. The Things Cloud CLI ships in this repo
+at [`things3-cloud/`](things3-cloud/) — a fork of Evan Purkhiser's
+[things3-cloud](https://github.com/evanpurkhiser/things3-cloud) (MIT) —
+and `setup` builds and installs it.
 
-  > **Heads up:** as of 0.8.3 the CLI only understands the `Task6` wire
-  > entity. Newer Things clients also emit `Task7` — an identical property
-  > set, just a version bump — and the CLI silently discards those records.
-  > New to-dos and completions made on those devices never appear. Everything
-  > reading through the CLI is affected, this plugin included.
-  >
-  > **We fixed it:** grab the
-  > [`task7-entity` branch](https://github.com/reysu/things3-cloud/tree/task7-entity)
-  > of our fork and `cargo build --release`, then put the binary earlier on
-  > your `PATH` than the packaged one (e.g. `/usr/local/bin`) until the fix
-  > lands upstream.
+> **Why bundle a fork?** The released CLI (0.8.3) only understands the
+> `Task6` wire entity. Newer Things clients also emit `Task7` — an identical
+> property set, just a version bump — and stock builds silently discard those
+> records, so to-dos and completions made on those devices never appear.
+> The bundled copy carries our fix.
 A Nerd Font in the bar (Omarchy's default setup qualifies).
 
 ## How it syncs

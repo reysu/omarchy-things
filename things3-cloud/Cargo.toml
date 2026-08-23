@@ -1,0 +1,45 @@
+[package]
+name = "things3-cloud"
+version = "0.8.3"
+edition = "2024"
+autobins = false
+description = "Command-line client for Things 3 using the Things Cloud API"
+license = "MIT"
+repository = "https://github.com/evanpurkhiser/things3-cloud"
+homepage = "https://github.com/evanpurkhiser/things3-cloud"
+readme = "README.md"
+keywords = ["cli", "things3", "productivity"]
+categories = ["command-line-utilities"]
+
+[[bin]]
+name = "things3"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0"
+clap = { version = "4.6", features = ["derive"] }
+clap_complete = "4.6"
+chrono = { version = "0.4", features = ["clock"] }
+console = "0.15"
+crc32fast = "1.5"
+dirs = "6.0"
+figment = { version = "0.10", features = ["env", "json"] }
+num_enum = "0.7"
+rand = "0.10"
+reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "rustls"] }
+rpassword = "7"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha1 = "0.10"
+strum = { version = "0.28", features = ["derive"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+iocraft = "0.7.18"
+urlencoding = "2.1"
+uuid = { version = "1.22", features = ["v4"] }
+tiny_http = "0.12"
+
+[dev-dependencies]
+insta = "1.46"
+tempfile = "3"
+trycmd = "0.15"

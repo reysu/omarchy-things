@@ -5,10 +5,17 @@ set -euo pipefail
 
 say() { printf '\n\033[1m%s\033[0m\n' "$*"; }
 
-# 1. The CLI the widget reads and writes through, plus jq for project progress.
-if ! command -v things3 >/dev/null 2>&1; then
-  say "Installing things3-cloud (AUR)…"
-  omarchy pkg aur add things3-cloud
+HERE="$(cd "$(dirname "$0")" && pwd)"
+
+# 1. The CLI the widget reads and writes through. Bundled — a fork of
+#    evanpurkhiser/things3-cloud carrying the Task7 fix — so nothing depends
+#    on the AUR package, whose released build silently drops records from
+#    newer Things clients. /usr/local/bin wins over any packaged copy.
+if [[ ! -x /usr/local/bin/things3 ]]; then
+  command -v cargo >/dev/null 2>&1 || omarchy pkg add rust
+  say "Building the bundled things3 CLI (first run only, about a minute)…"
+  (cd "$HERE/things3-cloud" && cargo build --release)
+  sudo install -Dm755 "$HERE/things3-cloud/target/release/things3" /usr/local/bin/things3
 fi
 command -v jq >/dev/null 2>&1 || omarchy pkg add jq
 

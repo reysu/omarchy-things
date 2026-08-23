@@ -1,0 +1,99 @@
+name: Bump
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Semantic version (example: 0.2.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  bump:
+    name: Bump version
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Ensure tests are passing on main
+        run: |
+          SHA=$(git rev-parse origin/main)
+          echo "Waiting for tests on ${SHA}..."
+          gh run list --workflow=main.yml --branch=main --commit "$SHA" --limit=1 --json databaseId --jq '.[0].databaseId' | xargs gh run watch --exit-status --compact
+
+      - name: Validate version input
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Version must be semver like 0.2.0"
+            exit 1
+          fi
+
+      - name: Ensure tag does not already exist
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          TAG="v${VERSION}"
+          if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
+            echo "Tag ${TAG} already exists"
+            exit 1
+          fi
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+
+      - name: Install cargo-edit
+        run: cargo install cargo-edit --locked
+
+      - name: Bump package version
+        env:
+          VERSION: ${{ inputs.version }}
+        run: cargo set-version "$VERSION"
+
+      - name: Refresh lockfile metadata
+        run: cargo metadata --format-version=1 > /dev/null
+
+      - name: Commit and tag release
+        env:
+          VERSION: ${{ inputs.version }}
+          GIT_AUTHOR_NAME: github-actions[bot]
+          GIT_AUTHOR_EMAIL: github-actions[bot]@users.noreply.github.com
+          GIT_COMMITTER_NAME: github-actions[bot]
+          GIT_COMMITTER_EMAIL: github-actions[bot]@users.noreply.github.com
+        run: |
+          TAG="v${VERSION}"
+          git add Cargo.toml Cargo.lock
+          git commit -m "release ${TAG}"
+          git tag -a "${TAG}" -m "Release ${TAG}"
+
+      - name: Push commit and tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          TAG="v${VERSION}"
+          git pull --rebase origin main
+          gh auth setup-git
+          git push origin HEAD:main "refs/tags/${TAG}"
+
+      - name: Dispatch publish workflow for tag
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          TAG="v${VERSION}"
+          gh workflow run main.yml --ref "${TAG}"
