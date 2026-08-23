@@ -238,6 +238,23 @@ Panel {
       : ("TODAY · " + (root.tasks.length - root.eveningCount))
   }
 
+  // Project/area sub-header inside Today: printed when the container
+  // changes between neighbouring rows of the same day/evening section
+  // (shapeToday clusters them, so one group prints one header).
+  function taskGroupTitle(index) {
+    if (root.view !== "today" || root.projectListMode) return ""
+    if (index < 0 || index >= root.tasks.length) return ""
+    var t = root.tasks[index]
+    var cur = Model.containerTitle(t)
+    if (cur === "") return ""
+    if (index > 0) {
+      var prev = root.tasks[index - 1]
+      if (prev && Model.isEvening(prev) === Model.isEvening(t)
+          && Model.containerTitle(prev) === cur) return ""
+    }
+    return cur
+  }
+
   // ---- Lifecycle. open() refreshes before showing so the list is never
   //      more than one popup-open stale.
   function open() {
@@ -431,6 +448,7 @@ Panel {
       root.inboxTasks = newInbox
       root.projects = newProjects
       root.projectTasks = newProjectTasks
+      root.pendingChecklistIds = []
     })
     // Rows that just appeared slide in. Quick-add reconciles are excluded —
     // their synthetic row already played the entrance (a pending- id in the
@@ -460,8 +478,20 @@ Panel {
         if (hit.status !== "incomplete") root.unpin()
         else if (hit.title !== root.pinnedTitle) { root.pinnedTitle = hit.title; persistSettings() }
       } else {
-        for (var d = 0; d < root.doneTasks.length; d++)
-          if (root.doneTasks[d] && root.doneTasks[d].id === root.pinnedId) { root.unpin(); break }
+        // Not a task — maybe a pinned checklist item.
+        var itemHit = null
+        for (var e2 = 0; e2 < everything.length && !itemHit; e2++) {
+          var cl = (everything[e2] && everything[e2].checklist) || []
+          for (var c2 = 0; c2 < cl.length; c2++)
+            if (cl[c2] && cl[c2].id === root.pinnedId) { itemHit = cl[c2]; break }
+        }
+        if (itemHit) {
+          if (itemHit.status !== "incomplete") root.unpin()
+          else if (itemHit.title !== root.pinnedTitle) { root.pinnedTitle = itemHit.title; persistSettings() }
+        } else {
+          for (var d = 0; d < root.doneTasks.length; d++)
+            if (root.doneTasks[d] && root.doneTasks[d].id === root.pinnedId) { root.unpin(); break }
+        }
       }
     }
     // Re-point the drill-in at the refreshed project object (or back out if
@@ -794,6 +824,32 @@ Panel {
   property string pinnedId: ""
   property string pinnedTitle: ""
 
+  // Checklist toggles in flight: the row draws the flipped state until the
+  // reconcile refresh lands, then real data takes over.
+  property var pendingChecklistIds: []
+
+  function toggleChecklistItem(task, item) {
+    if (!task || !item || String(task.id).indexOf("pending-") === 0) return
+    if (checkItemProc.running) return
+    if (root.pendingChecklistIds.indexOf(item.id) !== -1) return
+    root.pendingChecklistIds = root.pendingChecklistIds.concat([item.id])
+    root.noteMutation()
+    checkItemProc.command = ["timeout", "25", "things3", "mark",
+      item.status === "incomplete" ? "--check" : "--uncheck",
+      item.short_id, task.id]
+    checkItemProc.running = true
+  }
+
+  // A checklist item can ride in the bar exactly like a task — its uuid is
+  // globally unique, so the one pinnedId slot serves both kinds.
+  function pinChecklistItem(item) {
+    if (!item) return
+    if (root.pinnedId === item.id) { root.unpin(); return }
+    root.pinnedId = item.id
+    root.pinnedTitle = item.title || ""
+    persistSettings()
+  }
+
   function pinTask(task) {
     if (!task || String(task.id).indexOf("pending-") === 0) return
     root.pinnedId = task.id
@@ -1057,6 +1113,18 @@ Panel {
   }
 
   Process {
+    id: checkItemProc
+    stderr: StdioCollector {
+      id: checkItemErr
+      waitForEnd: true
+    }
+    onExited: function(exitCode) {
+      if (exitCode !== 0) root.errorText = Model.errorMessageForExit(exitCode, checkItemErr.text)
+      root.refresh(true)
+    }
+  }
+
+  Process {
     id: moveProc
     stderr: StdioCollector {
       id: moveErr
@@ -1161,7 +1229,8 @@ Panel {
 
     readonly property bool completing: task ? root.completingTaskIds.indexOf(task.id) !== -1 : false
     readonly property bool doneRow: root.view === "done"
-    readonly property string caption: Model.taskCaption(task, root.activeProject ? "project" : root.view)
+    readonly property string caption: Model.taskCaption(
+      task, (root.activeProject || root.view === "today") ? "project" : root.view)
     // A task whose notes are just a pasted link is really a bookmark — the
     // snippet shows it as one, and the URL makes the line clickable.
     readonly property string notesLine: Model.notesSnippet(task)
@@ -1397,6 +1466,77 @@ Panel {
         wrapMode: Text.WordWrap
         font.family: root.contentFontFamily
         font.pixelSize: Style.font.caption
+      }
+
+      // ---- Checklist items, indented under the title like Things' own
+      //      subtasks. The circle checks one off; the pin appears on hover
+      //      and rides the item's title in the bar, exactly like a task.
+      Repeater {
+        model: (row.task && !row.editing) ? (row.task.checklist || []) : []
+
+        Item {
+          id: clRow
+          required property var modelData
+          readonly property bool clStruck:
+            (modelData.status !== "incomplete") !== (root.pendingChecklistIds.indexOf(modelData.id) !== -1)
+          readonly property bool clPinned: modelData.id === root.pinnedId
+          width: parent.width
+          height: clText.implicitHeight + Style.spacing.xs
+
+          HoverHandler { id: clHover }
+
+          Text {
+            id: clCircle
+            anchors.left: parent.left
+            anchors.leftMargin: Style.spacing.sm
+            anchors.verticalCenter: parent.verticalCenter
+            text: clRow.clStruck ? "●" : "○"
+            color: Qt.darker(root.contentForeground, 1.4)
+            font.family: root.contentFontFamily
+            font.pixelSize: Style.font.caption
+
+            MouseArea {
+              anchors.fill: parent
+              anchors.margins: -Style.spacing.xs
+              onClicked: root.toggleChecklistItem(row.task, clRow.modelData)
+            }
+          }
+
+          Text {
+            id: clText
+            anchors.left: clCircle.right
+            anchors.leftMargin: Style.spacing.sm
+            anchors.right: clPin.visible ? clPin.left : parent.right
+            anchors.rightMargin: Style.spacing.sm
+            anchors.verticalCenter: parent.verticalCenter
+            text: clRow.modelData.title || ""
+            elide: Text.ElideRight
+            maximumLineCount: 1
+            opacity: clRow.clStruck ? 0.45 : 0.8
+            font.strikeout: clRow.clStruck
+            color: Qt.darker(root.contentForeground, 1.25)
+            font.family: root.contentFontFamily
+            font.pixelSize: Style.font.bodySmall
+          }
+
+          Text {
+            id: clPin
+            visible: clHover.hovered || clRow.clPinned
+            anchors.right: parent.right
+            anchors.rightMargin: Style.spacing.sm
+            anchors.verticalCenter: parent.verticalCenter
+            text: "\uf08d"
+            color: clRow.clPinned ? Color.accent : Qt.darker(root.contentForeground, 1.4)
+            font.family: root.contentFontFamily
+            font.pixelSize: Style.font.caption
+
+            MouseArea {
+              anchors.fill: parent
+              anchors.margins: -Style.spacing.xs
+              onClicked: root.pinChecklistItem(clRow.modelData)
+            }
+          }
+        }
       }
     }
 
@@ -1883,6 +2023,7 @@ Panel {
                 required property var modelData
                 required property int index
                 readonly property string sectionTitle: root.taskSectionTitle(index)
+                readonly property string groupTitle: root.taskGroupTitle(index)
                 width: taskListView.width
                 height: delegateColumn.implicitHeight
 
@@ -1902,6 +2043,14 @@ Panel {
                     height: visible ? implicitHeight : 0
                     text: delegateItem.sectionTitle
                     foreground: root.contentForeground
+                    fontFamily: root.contentFontFamily
+                  }
+
+                  PanelSectionHeader {
+                    visible: delegateItem.groupTitle !== ""
+                    height: visible ? implicitHeight : 0
+                    text: delegateItem.groupTitle
+                    foreground: Qt.darker(root.contentForeground, 1.35)
                     fontFamily: root.contentFontFamily
                   }
 

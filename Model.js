@@ -91,7 +91,9 @@ function shapeToday(list, upcoming) {
     var bIdx = b.indexes ? b.indexes.today_sort_index : 0
     return aIdx - bIdx
   })
-  return out
+  var day = out.filter(function(t) { return !isEvening(t) })
+  var eve = out.filter(isEvening)
+  return clusterByContainer(day).concat(clusterByContainer(eve))
 }
 
 function shapeInbox(list) {
@@ -559,4 +561,28 @@ function ellipsize(text, max) {
   var space = cut.lastIndexOf(" ")
   if (space > max * 0.6) cut = cut.substring(0, space)
   return cut + "…"
+}
+
+// Title of the project or area a task lives in ("" when it's loose).
+function containerTitle(task) {
+  if (!task) return ""
+  if (task.project && task.project.title) return String(task.project.title)
+  if (task.area && task.area.title) return String(task.area.title)
+  return ""
+}
+
+// Stable-cluster a section the way the Things apps draw Today: loose tasks
+// first, then each project/area's tasks together, containers in order of
+// first appearance — the app's own ordering survives inside every group.
+function clusterByContainer(list) {
+  var loose = [], order = [], groups = {}
+  ;(list || []).forEach(function(t) {
+    var k = containerTitle(t)
+    if (k === "") { loose.push(t); return }
+    if (!groups[k]) { groups[k] = []; order.push(k) }
+    groups[k].push(t)
+  })
+  var out = loose
+  order.forEach(function(k) { out = out.concat(groups[k]) })
+  return out
 }
