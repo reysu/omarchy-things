@@ -1,0 +1,33 @@
+#!/bin/bash
+# One-time setup for the Things bar widget: installs the things3-cloud CLI,
+# logs you in to Things Cloud, and runs the first sync. Safe to re-run.
+set -euo pipefail
+
+say() { printf '\n\033[1m%s\033[0m\n' "$*"; }
+
+# 1. The CLI the widget reads and writes through, plus jq for project progress.
+if ! command -v things3 >/dev/null 2>&1; then
+  say "Installing things3-cloud (AUR)…"
+  omarchy pkg aur add things3-cloud
+fi
+command -v jq >/dev/null 2>&1 || omarchy pkg add jq
+
+# 2. Things Cloud login — same account as your Mac/iPhone apps. set-auth
+#    prompts for your email, then your password (stored locally).
+if ! things3 --no-sync --log-level off today >/dev/null 2>&1; then
+  say "Log in to Things Cloud:"
+  things3 set-auth
+fi
+
+# 3. First sync pulls your whole database; give it a minute if it's big.
+say "Syncing with Things Cloud…"
+things3 --log-level off today >/dev/null
+
+say "Done — Things is in your bar."
+cat <<'MSG'
+
+  · Click the pill (or press SUPER+SHIFT+T if you added the keybind)
+    to open the panel.
+  · Companion terminal app + ALT+SPACE quick-add popup:
+      https://github.com/reysu/things-tui
+MSG

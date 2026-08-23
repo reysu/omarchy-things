@@ -43,35 +43,40 @@ iPhone apps.
   `e`/`x` rename and delete, `Shift+P` pins, `o` opens the full app for
   anything the panel deliberately leaves out (notes body, checklists).
 
-## Requirements
-
-- [things3-cloud](https://github.com/evanpurkhiser/things3-cloud) CLI
-  (`yay -S things3-cloud`), authenticated with `things3 set-auth`.
-
-  > **Heads up:** as of 0.8.3 the CLI only understands the `Task6` wire
-  > entity. Newer Things clients also emit `Task7` — an identical property
-  > set, just a version bump — and the CLI silently discards those records.
-  > New to-dos and completions made on those devices never appear. Everything
-  > reading through the CLI is affected, this plugin included.
-- `jq` (for the per-project progress fetch).
-- A Nerd Font in the bar (Omarchy's default setup qualifies).
-
 ## Install
 
 ```sh
-git clone <this repo> ~/.config/omarchy/plugins/reysu.things
-omarchy restart shell
+omarchy plugin add https://github.com/reysu/omarchy-things --enable
+~/.config/omarchy/plugins/reysu.things/setup
 ```
 
-Then add the **Things** widget to your bar (right-click the bar → add
-widget), or add `{ "id": "reysu.things" }` to `bar.layout` in
-`~/.config/omarchy/shell.json`.
+The first command installs the widget and asks which bar section to place it
+in. The second installs the [things3-cloud](https://github.com/evanpurkhiser/things3-cloud)
+CLI if it's missing, asks for your Things Cloud email and password (the same
+account as your Mac and iPhone apps), and runs the first sync — when it
+finishes, your tasks are in the bar.
 
 Optional Hyprland keybind to toggle the panel from anywhere:
 
 ```lua
 o.bind("SUPER + SHIFT + T", "Things tasks", "qs -p /usr/share/omarchy/shell ipc call reysu.things toggle")
 ```
+
+Companion app: [things-tui](https://github.com/reysu/things-tui) — the same
+data in a full terminal UI, plus an ALT+SPACE quick-add popup.
+
+## Requirements
+
+Handled by `setup`; to do it by hand you need the
+[things3-cloud](https://github.com/evanpurkhiser/things3-cloud) CLI
+(`yay -S things3-cloud`) authenticated with `things3 set-auth`, and `jq`.
+
+  > **Heads up:** as of 0.8.3 the CLI only understands the `Task6` wire
+  > entity. Newer Things clients also emit `Task7` — an identical property
+  > set, just a version bump — and the CLI silently discards those records.
+  > New to-dos and completions made on those devices never appear. Everything
+  > reading through the CLI is affected, this plugin included.
+A Nerd Font in the bar (Omarchy's default setup qualifies).
 
 ## How it syncs
 
