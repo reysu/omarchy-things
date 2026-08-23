@@ -5,6 +5,8 @@ at a glance, a full panel to work the list, and a "now" task pinned right in
 the bar — all synced with Things Cloud, so it's the same data as your Mac and
 iPhone apps.
 
+![The panel: quick-add with natural-language dates, checking off subtasks, and pinning a task to the bar](preview.gif)
+
 ## Features
 
 - **Five views** — Today ★, Upcoming 🗓, Done today ✓, Inbox, and Projects ○
@@ -65,6 +67,8 @@ Companion app: [things-tui](things-tui/) ships in this repo — the same data
 in a full terminal UI, plus an ALT+SPACE quick-add popup (grammar shared with
 the panel). Install it with `things-tui/linux/install.sh` (macOS:
 `things-tui/macos/install.sh`).
+
+![things-tui: the Today view with the sidebar and task detail pane](things-tui/preview.png)
 
 ## Requirements
 

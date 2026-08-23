@@ -6,6 +6,8 @@ A keyboard-and-mouse TUI (Textual) that mirrors Things 3's organization, backed
 by the `things3` cloud CLI (`things3-cloud` package), so everything stays in
 sync with Things Cloud — the same data your Mac/iPhone apps see.
 
+![The Today view: sidebar, tasks grouped into Today and This Evening, and the detail pane with a task's checklist](preview.png)
+
 ## Install
 
 Requires Python 3.11+, a [Nerd Font](https://www.nerdfonts.com/) in your
