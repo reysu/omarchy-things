@@ -11,15 +11,21 @@ sync with Things Cloud — the same data your Mac/iPhone apps see.
 ## Install
 
 Requires Python 3.11+, a [Nerd Font](https://www.nerdfonts.com/) in your
-terminal (icons are single-width Nerd Font glyphs), and the
-[`things3-cloud`](https://github.com/evanpurkhiser/things3-cloud) CLI
+terminal (icons are single-width Nerd Font glyphs), and the `things3` CLI
 authenticated with `things3 set-auth`.
+
+That CLI is **bundled** at [`../things3-cloud/`](../things3-cloud/) — a fork of
+Evan Purkhiser's [things3-cloud](https://github.com/evanpurkhiser/things3-cloud)
+(MIT). Use it rather than the released package: 0.8.3 only understands the
+`Task6` wire entity and silently drops the `Task7` records newer Things clients
+emit, so to-dos from those devices never appear. The installers below build it
+for you, and needs sudo once to place the binary in `/usr/local/bin`.
 
 **macOS**
 
 ```sh
-git clone git@github.com:reysu/things-tui.git && cd things-tui
-./macos/install.sh          # brew installs things3-cloud + pipx, then pipx installs the app
+git clone https://github.com/reysu/omarchy-things.git && cd omarchy-things
+./things-tui/macos/install.sh   # builds the bundled CLI, then pipx installs the app
 things3 set-auth
 things-tui
 ```
@@ -27,10 +33,13 @@ things-tui
 **Linux (Arch/Omarchy)**
 
 ```sh
-yay -S things3-cloud && things3 set-auth
-git clone git@github.com:reysu/things-tui.git && cd things-tui
-./linux/install.sh          # pipx install + desktop entry + icon; prints the Hyprland snippet
+git clone https://github.com/reysu/omarchy-things.git && cd omarchy-things
+./setup                         # builds the bundled CLI and logs you in
+./things-tui/linux/install.sh   # pipx install + desktop entry + icon; prints the Hyprland snippet
 ```
+
+Already running the bar widget? `setup` has done the CLI half — just run
+`~/.config/omarchy/plugins/reysu.things/things-tui/linux/install.sh`.
 
 Anywhere else: `pipx install .` (or `pip install .` in a venv) gives you the
 `things-tui` command.
