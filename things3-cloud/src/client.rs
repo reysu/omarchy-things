@@ -22,10 +22,85 @@ const CLIENT_INFO: &str = "eyJkbSI6Ik1hYzE0LDIiLCJsciI6IlVTIiwibmYiOnRydWUsIm5rI
 const APP_ID: &str = "com.culturedcode.ThingsMac";
 const SCHEMA: &str = "301";
 const WRITE_PUSH_PRIORITY: &str = "10";
-/// Ceiling on a single response body. A full first sync of a large database is
-/// a few tens of MB, so this leaves generous headroom while still bounding what
-/// one reply can allocate.
-const MAX_BODY_BYTES: u64 = 256 * 1024 * 1024;
+
+/// Ceiling on a single response body. Things serves history in pages of a few
+/// hundred KB, so this is headroom rather than a target.
+const MAX_BODY_BYTES: u64 = 8 * 1024 * 1024;
+
+// Aggregate ceilings for one pagination run. Bounding each response is not
+// enough on its own: a peer can keep answering with non-empty pages while
+// still reporting `end < latest`, which walks the offset forward forever and
+// grows RawState without limit. Every axis of the run is therefore capped, and
+// the server additionally has to move its own progress counter.
+const MAX_SYNC_PAGES: u32 = 5_000;
+const MAX_SYNC_ITEMS: u64 = 2_000_000;
+const MAX_SYNC_BYTES: u64 = 512 * 1024 * 1024;
+const MAX_SYNC_SECS: u64 = 600;
+
+/// Spend limit for a single paginated sync, shared by the in-memory and
+/// append-log paths so both are bounded identically.
+#[derive(Debug)]
+pub struct SyncBudget {
+    pages: u32,
+    items: u64,
+    bytes: u64,
+    started: std::time::Instant,
+    last_end: Option<i64>,
+}
+
+impl Default for SyncBudget {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl SyncBudget {
+    pub fn new() -> Self {
+        Self {
+            pages: 0,
+            items: 0,
+            bytes: 0,
+            started: std::time::Instant::now(),
+            last_end: None,
+        }
+    }
+
+    /// Charge one page against the run's ceilings.
+    ///
+    /// `end` is the server's own `end-total-content-size`. When a page carries
+    /// items that counter has to advance: if it stalls or moves backwards the
+    /// peer is handing us content while claiming it delivered none, which is
+    /// exactly the shape that would otherwise loop forever.
+    pub fn charge(&mut self, items: usize, bytes: u64, end: i64) -> Result<()> {
+        self.pages += 1;
+        self.items += items as u64;
+        self.bytes += bytes;
+
+        if self.pages > MAX_SYNC_PAGES {
+            return Err(anyhow!("sync exceeded {MAX_SYNC_PAGES} pages"));
+        }
+        if self.items > MAX_SYNC_ITEMS {
+            return Err(anyhow!("sync exceeded {MAX_SYNC_ITEMS} items"));
+        }
+        if self.bytes > MAX_SYNC_BYTES {
+            return Err(anyhow!("sync exceeded {MAX_SYNC_BYTES} bytes"));
+        }
+        if self.started.elapsed().as_secs() > MAX_SYNC_SECS {
+            return Err(anyhow!("sync exceeded {MAX_SYNC_SECS}s"));
+        }
+
+        if items > 0
+            && let Some(prev) = self.last_end
+            && end <= prev
+        {
+            return Err(anyhow!(
+                "server reported no progress: end-total-content-size stuck at {prev}"
+            ));
+        }
+        self.last_end = Some(end);
+        Ok(())
+    }
+}
 
 fn app_instance_id() -> String {
     std::env::var("THINGS_APP_INSTANCE_ID").unwrap_or_else(|_| "things3-cloud".to_string())
@@ -49,6 +124,10 @@ pub struct ThingsCloudClient {
     pub history_key: Option<String>,
     pub head_index: i64,
     http: Client,
+    /// Size of the most recent response body, so paginating callers can charge
+    /// real transferred bytes against their budget without threading it
+    /// through every return type.
+    last_body_bytes: std::cell::Cell<u64>,
 }
 
 impl ThingsCloudClient {
@@ -60,7 +139,13 @@ impl ThingsCloudClient {
             history_key: None,
             head_index: 0,
             http,
+            last_body_bytes: std::cell::Cell::new(0),
         })
+    }
+
+    /// Bytes read for the most recent response body.
+    pub fn last_body_bytes(&self) -> u64 {
+        self.last_body_bytes.get()
     }
 
     fn request(
@@ -115,6 +200,7 @@ impl ThingsCloudClient {
                 Err(_) => String::new(),
             }
         };
+        self.last_body_bytes.set(text.len() as u64);
         if !status.is_success() {
             return Err(anyhow!("HTTP {} for {}: {}", status.as_u16(), url, text));
         }
@@ -160,9 +246,11 @@ impl ThingsCloudClient {
 
         let mut state = RawState::new();
         let mut start_index = 0i64;
+        let mut budget = SyncBudget::new();
 
         loop {
             let page = self.get_items_page(start_index)?;
+            let body_bytes = self.last_body_bytes();
             let items = page
                 .get("items")
                 .and_then(Value::as_array)
@@ -174,11 +262,6 @@ impl ThingsCloudClient {
                 .and_then(Value::as_i64)
                 .unwrap_or(self.head_index);
 
-            for item in items {
-                let wire: WireItem = serde_json::from_value(item)?;
-                fold_item(wire, &mut state);
-            }
-
             let end = page
                 .get("end-total-content-size")
                 .and_then(Value::as_i64)
@@ -187,6 +270,16 @@ impl ThingsCloudClient {
                 .get("latest-total-content-size")
                 .and_then(Value::as_i64)
                 .unwrap_or(0);
+
+            // Charge before folding: the point is to refuse a runaway peer
+            // *before* its items are absorbed into RawState.
+            budget.charge(item_count, body_bytes, end)?;
+
+            for item in items {
+                let wire: WireItem = serde_json::from_value(item)?;
+                fold_item(wire, &mut state);
+            }
+
             if end >= latest {
                 break;
             }

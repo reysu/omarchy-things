@@ -170,13 +170,19 @@ function taskCaption(task, view) {
   return parts.join("  ·  ")
 }
 
+// Diagnostics quoted back from the CLI are external input held by a
+// long-lived process, so clamp before scanning and before display: only the
+// head of stderr is ever examined, and only a short first line is surfaced.
+var MAX_STDERR_SCAN = 2048
+var MAX_STDERR_LINE = 200
+
 function errorMessageForExit(exitCode, stderrText) {
-  var text = String(stderrText || "").trim()
+  var text = String(stderrText || "").slice(0, MAX_STDERR_SCAN).trim()
   if (exitCode === 127) return "things3 CLI not found — install things3-cloud."
   if (text.indexOf("auth") !== -1 || text.indexOf("credential") !== -1 || text.indexOf("login") !== -1)
     return "Things Cloud auth failed — run `things3 set-auth`."
   if (exitCode === 124) return "things3 took too long — network down?"
-  var firstLine = text.split("\n")[0]
+  var firstLine = text.split("\n")[0].slice(0, MAX_STDERR_LINE)
   return "things3 failed" + (firstLine !== "" ? (": " + firstLine) : ".")
 }
 

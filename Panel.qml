@@ -93,6 +93,22 @@ Panel {
   property bool refreshPending: false
   property bool refreshPendingFast: false
 
+  // ---- Input ceilings -------------------------------------------------
+  //      This panel runs inside the long-lived shell process, and the
+  //      StdioCollectors below retain a whole stream before anything parses
+  //      it. So nothing external is allowed in unbounded: every producer is
+  //      capped in the fetch script (read cap+1, reject on overrun rather
+  //      than truncate into invalid JSON), the per-project fan-out is capped
+  //      in count as well as size, and the assembled document is re-checked
+  //      here before JSON.parse. A very large legitimate account trips these
+  //      the same way a hostile reply would — better a visible error than an
+  //      exhausted shell.
+  readonly property int maxStreamBytes: 4194304        // 4 MiB per CLI stream
+  readonly property int maxProjectStreamBytes: 524288  // 512 KiB per project
+  readonly property int maxProjects: 200               // project fan-out
+  readonly property int maxPayloadBytes: 29360128      // 28 MiB assembled
+  readonly property int maxStderrBytes: 2048           // retained diagnostics
+
   // Keyboard cursor over the task list. -1 = nothing selected yet;
   // taskCursorActive gates the row highlight so it only shows up once the
   // user has actually pressed an arrow key, not on every open.
@@ -343,15 +359,23 @@ Panel {
     fetchProc.startedAt = Date.now()
 
     var from = Model.todayIsoDate()
-    var script = 'if ! command -v things3 >/dev/null 2>&1; then echo "things3 CLI not found" >&2; exit 127; fi\n'
+    // `cap NAME LIMIT` reads stdin through LIMIT+1 bytes and fails if it
+    // overran, so an oversized stream is rejected outright instead of being
+    // truncated into JSON that would parse wrong. LC_ALL=C makes ${#v} count
+    // bytes; pipefail makes a failing producer fail its whole pipeline so the
+    // `||` fallbacks below still fire.
+    var script = 'set -o pipefail; export LC_ALL=C\n'
+      + 'CAP=' + root.maxStreamBytes + '; PCAP=' + root.maxProjectStreamBytes + '; MAXP=' + root.maxProjects + '\n'
+      + 'cap() { v=$(head -c $(($2+1))); if [ ${#v} -gt $2 ]; then printf "%s exceeded %s bytes\\n" "$1" "$2" >&2; return 1; fi; printf %s "$v"; }\n'
+      + 'if ! command -v things3 >/dev/null 2>&1; then echo "things3 CLI not found" >&2; exit 127; fi\n'
       + 'ERR=$(mktemp); trap \'rm -f "$ERR"\' EXIT\n'
-      + 'T=$(timeout 25 things3 --json today 2>"$ERR") || T=$(things3 --no-sync --json today 2>"$ERR") || { cat "$ERR" >&2; exit 1; }\n'
-      + 'U=$(things3 --no-sync --json upcoming 2>"$ERR") || U="[]"\n'
-      + 'I=$(things3 --no-sync --json inbox 2>"$ERR") || I="[]"\n'
-      + 'D=$(things3 --no-sync --json logbook --from ' + from + ' 2>"$ERR") || D="[]"\n'
-      + 'P=$(things3 --no-sync --json projects 2>"$ERR") || P="[]"\n'
+      + 'T=$(timeout 25 things3 --json today 2>"$ERR" | cap today $CAP) || T=$(things3 --no-sync --json today 2>"$ERR" | cap today $CAP) || { head -c ' + root.maxStderrBytes + ' "$ERR" >&2; exit 1; }\n'
+      + 'U=$(things3 --no-sync --json upcoming 2>"$ERR" | cap upcoming $CAP) || U="[]"\n'
+      + 'I=$(things3 --no-sync --json inbox 2>"$ERR" | cap inbox $CAP) || I="[]"\n'
+      + 'D=$(things3 --no-sync --json logbook --from ' + from + ' 2>"$ERR" | cap logbook $CAP) || D="[]"\n'
+      + 'P=$(things3 --no-sync --json projects 2>"$ERR" | cap projects $CAP) || P="[]"\n'
       + (fast ? 'PD="{}"\n'
-        : 'PD=$(printf %s "$P" | jq -r \'.[] | select(.status == "incomplete") | .id\' | while read -r pid; do things3 --no-sync --json project "$pid" 2>/dev/null | jq --arg id "$pid" \'{key: $id, value: [.[] | {id, title, status, flags, dates, indexes}]}\'; done | jq -s \'from_entries\') || PD="{}"\n')
+        : 'PD=$(printf %s "$P" | jq -r \'.[] | select(.status == "incomplete") | .id\' | head -n $MAXP | while read -r pid; do things3 --no-sync --json project "$pid" 2>/dev/null | cap "project" $PCAP | jq --arg id "$pid" \'{key: $id, value: [.[] | {id, title, status, flags, dates, indexes}]}\' || true; done | jq -s \'from_entries\' | cap projectTasks $CAP) || PD="{}"\n')
       + 'printf \'{"today":%s,"upcoming":%s,"inbox":%s,"done":%s,"projects":%s,"projectTasks":%s}\' "$T" "$U" "$I" "$D" "$P" "$PD"\n'
     fetchProc.command = ["bash", "-c", script]
     fetchProc.running = true
@@ -984,6 +1008,12 @@ Panel {
         root.loading = false
         var raw = String(text || "").trim()
         if (raw === "") return
+        // Belt to the script's braces: if anything got past the per-stream
+        // caps, refuse it here rather than hand it to JSON.parse.
+        if (raw.length > root.maxPayloadBytes) {
+          root.errorText = "things3 returned more data than the panel will read."
+          return
+        }
         // Stale snapshot: the user changed something after this fetch
         // began. Throw it away and let onExited refire a fresh fast one.
         if (fetchProc.startedAt < root.lastMutationAt) {
@@ -2100,6 +2130,10 @@ Panel {
               height: visible ? implicitHeight : 0
               width: parent.width
               text: root.errorText
+              // errorText can carry a line of CLI stderr. AutoText would let
+              // that be sniffed as rich text and rendered as markup, so pin it
+              // to PlainText.
+              textFormat: Text.PlainText
               color: Color.urgent
               wrapMode: Text.WordWrap
               font.family: root.contentFontFamily

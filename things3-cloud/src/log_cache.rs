@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::{
-    client::ThingsCloudClient,
+    client::{SyncBudget, ThingsCloudClient},
     store::{RawState, fold_item},
     wire::wire_object::WireItem,
 };
@@ -88,6 +88,8 @@ pub fn sync_append_log(client: &mut ThingsCloudClient, cache_dir: &Path) -> Resu
         .open(&log_path)
         .with_context(|| format!("failed to open {}", log_path.display()))?;
 
+    let mut budget = SyncBudget::new();
+
     loop {
         let page = match client.get_items_page(start_index) {
             Ok(v) => v,
@@ -96,6 +98,7 @@ pub fn sync_append_log(client: &mut ThingsCloudClient, cache_dir: &Path) -> Resu
                 client.get_items_page(start_index)?
             }
         };
+        let body_bytes = client.last_body_bytes();
 
         let items = page
             .get("items")
@@ -114,6 +117,10 @@ pub fn sync_append_log(client: &mut ThingsCloudClient, cache_dir: &Path) -> Resu
             .get("current-item-index")
             .and_then(Value::as_i64)
             .unwrap_or(client.head_index);
+
+        // Charge before appending, so a runaway peer is refused before its
+        // items reach the on-disk log.
+        budget.charge(items.len(), body_bytes, end)?;
 
         for item in &items {
             writeln!(fp, "{}", serde_json::to_string(item)?)?;
