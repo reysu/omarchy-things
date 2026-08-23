@@ -102,7 +102,13 @@ and `setup` builds and installs it.
 > property set, just a version bump — and stock builds silently discard those
 > records, so to-dos and completions made on those devices never appear.
 > The bundled copy carries our fix.
+
 A Nerd Font in the bar (Omarchy's default setup qualifies).
+
+`setup` compiles that CLI with `cargo` and needs **sudo once** to place the
+binary at `/usr/local/bin/things3`. If `cargo` or `jq` are missing it installs
+them with `omarchy pkg add`. It writes no user configuration; the only state it
+creates is your Things Cloud login and cache under `~/.local/state/things3`.
 
 ## How it syncs
 
