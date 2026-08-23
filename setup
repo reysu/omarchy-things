@@ -28,6 +28,7 @@ cat <<'MSG'
 
   · Click the pill (or press SUPER+SHIFT+T if you added the keybind)
     to open the panel.
-  · Companion terminal app + ALT+SPACE quick-add popup:
-      https://github.com/reysu/things-tui
+  · Companion terminal app + ALT+SPACE quick-add popup — ships in this
+    repo; install it with:
+      ~/.config/omarchy/plugins/reysu.things/things-tui/linux/install.sh
 MSG

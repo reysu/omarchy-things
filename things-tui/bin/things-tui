@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Dev launcher: runs from this checkout's venv (works on Linux and macOS).
+# For a normal install use `pipx install .` which puts `things-tui` on PATH.
+here="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")/.." && pwd)"
+export PYTHONPATH="$here"
+exec "$here/.venv/bin/python" -m things_tui "$@"

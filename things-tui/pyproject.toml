@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "things-tui"
+version = "0.1.0"
+description = "A Things 3 clone for the terminal, backed by the things3-cloud CLI"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = ["textual>=8.0"]
+
+[project.scripts]
+things-tui = "things_tui.__main__:main"
+
+[tool.setuptools]
+packages = ["things_tui"]
+
+[tool.setuptools.package-data]
+things_tui = ["*.tcss"]

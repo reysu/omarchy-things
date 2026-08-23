@@ -62,8 +62,10 @@ Optional Hyprland keybind to toggle the panel from anywhere:
 o.bind("SUPER + SHIFT + T", "Things tasks", "qs -p /usr/share/omarchy/shell ipc call reysu.things toggle")
 ```
 
-Companion app: [things-tui](https://github.com/reysu/things-tui) — the same
-data in a full terminal UI, plus an ALT+SPACE quick-add popup.
+Companion app: [things-tui](things-tui/) ships in this repo — the same data
+in a full terminal UI, plus an ALT+SPACE quick-add popup (grammar shared with
+the panel). Install it with `things-tui/linux/install.sh` (macOS:
+`things-tui/macos/install.sh`).
 
 ## Requirements
 
@@ -76,6 +78,12 @@ Handled by `setup`; to do it by hand you need the
   > set, just a version bump — and the CLI silently discards those records.
   > New to-dos and completions made on those devices never appear. Everything
   > reading through the CLI is affected, this plugin included.
+  >
+  > **We fixed it:** grab the
+  > [`task7-entity` branch](https://github.com/reysu/things3-cloud/tree/task7-entity)
+  > of our fork and `cargo build --release`, then put the binary earlier on
+  > your `PATH` than the packaged one (e.g. `/usr/local/bin`) until the fix
+  > lands upstream.
 A Nerd Font in the bar (Omarchy's default setup qualifies).
 
 ## How it syncs

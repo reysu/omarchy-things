@@ -1,0 +1,255 @@
+/* things — HERDR-ish flat dark panels */
+
+Screen {
+    background: $t-bg;
+    color: $t-fg;
+}
+
+* {
+    scrollbar-color: $t-border2;
+    scrollbar-color-hover: $t-hint;
+    scrollbar-color-active: $t-accent;
+    scrollbar-background: $t-bg;
+    scrollbar-background-hover: $t-bg;
+    scrollbar-background-active: $t-bg;
+    scrollbar-corner-color: $t-bg;
+}
+
+#body {
+    height: 1fr;
+}
+
+#left {
+    width: 30;
+    min-width: 24;
+    max-width: 40;
+    border-right: solid $t-border;
+    background: $t-panel;
+}
+
+#brand {
+    height: 1;
+    padding: 0 1;
+    color: $t-accent;
+    text-style: bold;
+    background: $t-panel;
+}
+
+#sidebar {
+    height: 1fr;
+    background: $t-panel;
+    border: none;
+    padding: 1 0;
+    scrollbar-size-vertical: 1;
+}
+
+#sidebar > .option-list--option-highlighted {
+    background: $t-hl;
+    text-style: none;
+}
+
+#main {
+    width: 2fr;
+    min-width: 40;
+}
+
+#view-title {
+    height: 2;
+    padding: 1 1 0 1;
+}
+
+#tasklist {
+    height: 1fr;
+    background: $t-bg;
+    border: none;
+    padding: 0 1;
+    scrollbar-size-vertical: 1;
+}
+
+#tasklist > .option-list--option-highlighted {
+    background: $t-hl;
+    text-style: none;
+}
+
+OptionList {
+    background: transparent;
+    text-wrap: nowrap;
+    text-overflow: ellipsis;
+}
+OptionList:focus {
+    border: none;
+}
+OptionList > .option-list--option-highlighted {
+    background: $t-hl;
+}
+
+#detail {
+    width: 1fr;
+    min-width: 28;
+    max-width: 60;
+    border-left: solid $t-border;
+    background: $t-panel;
+    padding: 1 2;
+    scrollbar-size-vertical: 1;
+}
+
+#statusbar {
+    dock: bottom;
+    height: 1;
+    background: $t-panel;
+    border-top: solid $t-border;
+}
+
+/* ---------------- modals ---------------- */
+
+ModalScreen {
+    align: center middle;
+    background: $t-overlay 60%;
+}
+
+#form {
+    width: 90;
+    max-width: 95%;
+    height: auto;
+    max-height: 90%;
+    background: $t-modal;
+    border: round $t-border2;
+    padding: 1 2;
+}
+
+#form-title {
+    color: $t-accent;
+    text-style: bold;
+    padding-bottom: 1;
+}
+
+#form Label {
+    color: $t-dim;
+    padding-top: 1;
+}
+
+#form Input, #form TextArea {
+    background: $t-panel;
+    border: tall $t-border2;
+}
+#form Input:focus, #form TextArea:focus {
+    border: tall $t-accent;
+}
+
+#f-notes {
+    height: 6;
+}
+
+#form-row, #form-row2 {
+    height: auto;
+}
+#form-row > Vertical, #form-row2 > Vertical {
+    width: 1fr;
+    height: auto;
+    padding-right: 2;
+}
+
+#form-hint {
+    padding-top: 1;
+}
+
+#when-box, #picker-box {
+    width: 52;
+    max-width: 95%;
+    height: auto;
+    max-height: 80%;
+    background: $t-modal;
+    border: round $t-border2;
+    padding: 1 2;
+}
+
+#when-list, #picker-list {
+    height: auto;
+    max-height: 18;
+    background: transparent;
+    border: none;
+    padding: 1 0;
+}
+
+#when-box Input, #picker-box Input {
+    background: $t-panel;
+    border: tall $t-border2;
+}
+#when-box Input:focus, #picker-box Input:focus {
+    border: tall $t-accent;
+}
+
+#detail-box {
+    width: 100;
+    max-width: 95%;
+    height: auto;
+    max-height: 90%;
+    background: $t-modal;
+    border: round $t-border2;
+    padding: 1 2;
+}
+
+#detail-title {
+    padding-bottom: 1;
+}
+
+#detail-meta {
+    padding-bottom: 1;
+}
+
+#detail-notes-scroll {
+    height: auto;
+    max-height: 14;
+    background: $t-panel;
+    padding: 1;
+}
+
+#detail-checklist {
+    height: auto;
+    max-height: 14;
+    background: transparent;
+    border: none;
+    padding: 1 0 0 0;
+}
+
+ChordScreen {
+    background: transparent;
+    align: left bottom;
+}
+
+#chord-hint {
+    dock: bottom;
+    height: 1;
+    background: $t-hl;
+    color: $t-fg;
+}
+
+#help-box {
+    width: 92;
+    max-width: 95%;
+    height: auto;
+    max-height: 90%;
+    background: $t-modal;
+    border: round $t-border2;
+    padding: 1 3;
+    scrollbar-size-vertical: 1;
+}
+
+Toast {
+    background: $t-modal;
+}
+
+#entry-box {
+    width: 100;
+    max-width: 96%;
+    height: auto;
+    background: $t-modal;
+    border: round $t-border2;
+    padding: 1 2;
+}
+#entry-row { height: 1; }
+#entry-plus { width: 2; color: $t-accent; text-style: bold; }
+#entry-input { background: transparent; border: none; height: 1; padding: 0; }
+#entry-preview { padding-top: 1; height: 2; }
+#when-preview { padding-top: 1; height: 2; }
+#entry-hint { color: $t-hint; padding-top: 1; height: auto; }

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Things
+Comment=Things 3 for the terminal
+Exec=foot --app-id=things --title=things __THINGS_TUI_BIN__
+Icon=things-tui
+Terminal=false
+Categories=Office;ProjectManagement;
+StartupWMClass=things
