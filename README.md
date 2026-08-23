@@ -70,6 +70,26 @@ the panel). Install it with `things-tui/linux/install.sh` (macOS:
 
 ![things-tui: the Today view with the sidebar and task detail pane](things-tui/preview.png)
 
+## Remove
+
+```sh
+omarchy plugin remove reysu.things
+sudo rm -f /usr/local/bin/things3      # the CLI `setup` built
+rm -rf ~/.local/state/things3          # Things Cloud login + local cache
+```
+
+Nothing here touches Things Cloud — your tasks stay in the Mac and iPhone apps.
+If you added the `SUPER + SHIFT + T` keybind, delete that line from
+`~/.config/hypr/bindings.lua`.
+
+If you also installed the companion app:
+
+```sh
+pipx uninstall things-tui             # or: rm -f ~/.local/bin/things-tui
+rm -f ~/.local/share/applications/things.desktop
+rm -f ~/.local/share/icons/hicolor/scalable/apps/things-tui.svg
+```
+
 ## Requirements
 
 Nothing beyond what `setup` handles. The Things Cloud CLI ships in this repo

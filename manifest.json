@@ -5,6 +5,15 @@
   "version": "1.1.0",
   "author": "reysu",
   "license": "MIT",
+  "homepage": "https://github.com/reysu/omarchy-things",
+  "repository": "https://github.com/reysu/omarchy-things",
+  "keywords": [
+    "things",
+    "tasks",
+    "todo",
+    "productivity",
+    "quickshell"
+  ],
   "description": "Things 3 task count in the bar (Today / Done today / Inbox, middle-click to cycle), with a panel to view tasks, check them off, and quick-add \u2014 backed by the things3 cloud CLI.",
   "kinds": [
     "bar-widget"
