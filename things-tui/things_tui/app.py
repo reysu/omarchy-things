@@ -57,6 +57,31 @@ class ListRow:
     label: str = ""
 
 
+def cluster(items, key_of):
+    """Group `items`, keeping each key at its first appearance and Things'
+    own order within it. Returns (loose, [(label, items), …]).
+
+    The CLI hands back a list view in Things' order, which interleaves
+    containers and headings. Printing a header whenever the value differed
+    from the *previous row* therefore repeated the same few titles down the
+    whole list — 261 headers for 19 distinct projects in Anytime, and "Bugs"
+    six times inside one project — instead of grouping under them.
+    """
+    loose: list = []
+    order: list = []
+    groups: dict = {}
+    for it in items:
+        key, label = key_of(it)
+        if not key:
+            loose.append(it)
+            continue
+        if key not in groups:
+            groups[key] = (label, [])
+            order.append(key)
+        groups[key][1].append(it)
+    return loose, [groups[k] for k in order]
+
+
 class MarkedList(OptionList):
     """OptionList that paints the ▌ cursor mark in the highlighted row's
     gutter during its own render pass, so it moves in the same frame as
@@ -530,23 +555,32 @@ class ThingsApp(App):
                 self.list_rows.append(ListRow("trash", task=item))
             n_shown = len(tasks)
         elif spec.kind in ("anytime", "someday"):
-            last = None
-            for t in tasks:
-                crumb = rows.container_label(t) or "No project"
-                if crumb != last:
-                    header(crumb, style=f"bold {rows.DIM}")
-                    last = crumb
-                add_task(t, show_container=False)
+            _, byproject = cluster(
+                tasks,
+                lambda t: ((rows.container_label(t) or "No project"),) * 2,
+            )
+            for label, group in byproject:
+                header(label, style=f"bold {rows.DIM}")
+                for t in group:
+                    add_task(t, show_container=False)
             n_shown = len(tasks)
         elif spec.kind == "project":
-            last = None
             tasks = [t for t in tasks if t.get("id") != spec.id]
-            for t in tasks:
-                h = (t.get("heading") or {}).get("title")
-                if h and h != last:
-                    header(f"¶ {h}", style=f"bold {rows.PURPLE}")
-                last = h
-                add_task(t, show_container=False, indent=2 if h else 0)
+            # Un-headed to-dos first, which is where Things puts them, then
+            # one block per heading. Keyed by heading id so two headings that
+            # happen to share a title stay separate.
+            def heading_key(t):
+                h = t.get("heading") or {}
+                return (h.get("id") or h.get("title"),
+                        h.get("title") or "(untitled heading)")
+
+            loose, byheading = cluster(tasks, heading_key)
+            for t in loose:
+                add_task(t, show_container=False)
+            for label, group in byheading:
+                header(f"¶ {label}", style=f"bold {rows.PURPLE}")
+                for t in group:
+                    add_task(t, show_container=False, indent=2)
             n_shown = len(tasks)
         elif spec.kind == "area":
             projs = [t for t in tasks if t.get("type") == "project"]
