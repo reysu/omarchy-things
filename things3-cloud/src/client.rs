@@ -10,10 +10,7 @@ use urlencoding::encode;
 
 use crate::{
     store::{RawState, fold_item},
-    wire::{
-        task::{TaskPatch, TaskStatus},
-        wire_object::{EntityType, WireItem, WireObject},
-    },
+    wire::wire_object::{WireItem, WireObject},
 };
 
 const BASE_URL: &str = "https://cloud.culturedcode.com/version/1";
@@ -326,29 +323,5 @@ impl ThingsCloudClient {
             .unwrap_or(idx);
         self.head_index = new_index;
         Ok(new_index)
-    }
-
-    pub fn set_task_status(
-        &mut self,
-        task_uuid: &str,
-        status: i32,
-        entity: Option<String>,
-        stop_date: Option<f64>,
-    ) -> Result<i64> {
-        let entity_type = entity.map(EntityType::from).unwrap_or(EntityType::Task6);
-        let mut changes = BTreeMap::new();
-        changes.insert(
-            task_uuid.to_string(),
-            WireObject::update(
-                entity_type,
-                TaskPatch {
-                    status: Some(TaskStatus::from(status)),
-                    stop_date: Some(stop_date),
-                    modification_date: Some(now_ts()),
-                    ..Default::default()
-                },
-            ),
-        );
-        self.commit(changes, None)
     }
 }
