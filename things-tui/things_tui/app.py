@@ -208,6 +208,7 @@ class ThingsApp(App):
         Binding("n", "new_task", "new"),
         Binding("ctrl+n", "new_task", show=False),
         Binding("N", "new_inbox_task", show=False),
+        Binding("H", "new_heading", show=False),
         Binding("slash", "search", "search"),
         Binding("ctrl+f", "search", show=False),
         Binding("g", "chord", show=False),
@@ -258,6 +259,7 @@ class ThingsApp(App):
 
         self.areas: list[dict] = []
         self.projects: list[Task] = []
+        self.current_headings: list[Task] = []
         self.counts: dict[str, int] = {}
         self.logbook_days: int | None = 60
         self.undo_stack: list[dict] = []
@@ -474,7 +476,8 @@ class ThingsApp(App):
         lists = tuple((p.get("id"), p.get("title")) for p in self.projects) \
             + tuple((a.get("id"), a.get("title")) for a in self.areas)
         return (spec.key, self.logbook_days, lists, tuple(
-            (t.get("id"), t.get("title"), t.get("status"), t.get("heading"),
+            (t.get("id"), t.get("title"), t.get("type"), t.get("index"),
+             t.get("status"), t.get("heading"),
              (t.get("dates") or {}).get("modified_at"),
              (t.get("dates") or {}).get("deadline_at"),
              (t.get("start") or {}).get("scheduled_at"),
@@ -484,6 +487,10 @@ class ThingsApp(App):
     def _render_view(self, spec: ViewSpec, tasks: list[Task]) -> None:
         if spec.key != self.view_spec.key:
             return
+        self.current_headings = (
+            [task for task in tasks if task.get("type") == "heading"]
+            if spec.kind == "project" else []
+        )
         tl = self._tl
         # A background refresh that fetched identical data must not touch the
         # OptionList: clearing and refilling it resets the scroll offset and
@@ -565,7 +572,14 @@ class ThingsApp(App):
                     add_task(t, show_container=False)
             n_shown = len(tasks)
         elif spec.kind == "project":
-            tasks = [t for t in tasks if t.get("id") != spec.id]
+            heading_records = sorted(
+                self.current_headings,
+                key=lambda heading: (heading.get("index", 0), heading.get("id", "")),
+            )
+            tasks = [
+                task for task in tasks
+                if task.get("id") != spec.id and task.get("type") != "heading"
+            ]
             # Un-headed to-dos first, which is where Things puts them, then
             # one block per heading. Keyed by heading id so two headings that
             # happen to share a title stay separate.
@@ -577,7 +591,23 @@ class ThingsApp(App):
             loose, byheading = cluster(tasks, heading_key)
             for t in loose:
                 add_task(t, show_container=False)
-            for label, group in byheading:
+            grouped = {
+                (group[0].get("heading") or {}).get("id"): (label, group)
+                for label, group in byheading
+            }
+            rendered_heading_ids: set[str] = set()
+            for heading_record in heading_records:
+                heading_id = heading_record.get("id") or ""
+                label = heading_record.get("title") or "(untitled heading)"
+                group = grouped.get(heading_id, (label, []))[1]
+                header(f"¶ {label}", style=f"bold {rows.PURPLE}")
+                for t in group:
+                    add_task(t, show_container=False, indent=2)
+                rendered_heading_ids.add(heading_id)
+            # Preserve tasks whose heading record is unavailable locally.
+            for heading_id, (label, group) in grouped.items():
+                if heading_id in rendered_heading_ids:
+                    continue
                 header(f"¶ {label}", style=f"bold {rows.PURPLE}")
                 for t in group:
                     add_task(t, show_container=False, indent=2)
@@ -856,6 +886,11 @@ class ThingsApp(App):
             area = (p.get("area") or {}).get("title")
             label = f"{p.get('title') or ''}" + (f"  ({area})" if area else "")
             choices.append((label, p["id"]))
+        for heading in self.current_headings:
+            project = (heading.get("project") or {}).get("title") or self.view_spec.title
+            choices.append(
+                (f"{project} › {heading.get('title') or '(untitled heading)'}", heading["id"])
+            )
         for a in self.areas:
             choices.append((a["title"], a["id"]))
         return choices
@@ -887,6 +922,29 @@ class ThingsApp(App):
             self._create_task,
         )
 
+    def action_new_heading(self) -> None:
+        if self.view_spec.kind != "project" or not self.view_spec.id:
+            self.notify("open a project before adding a heading")
+            return
+        project_id = self.view_spec.id
+
+        def _apply(title: str | None) -> None:
+            if not title:
+                return
+            self.notify(f"adding heading “{title}”")
+            self._do_create_heading(title, project_id)
+
+        self.push_screen(modals.TextPromptScreen("New Heading"), _apply)
+
+    @work(thread=True)
+    def _do_create_heading(self, title: str, project_id: str) -> None:
+        try:
+            backend.new_heading(title, project=project_id)
+        except backend.CliError as e:
+            self.call_from_thread(self.notify, f"heading failed: {e}", severity="error")
+            return
+        self.call_from_thread(self.load_view)
+
     def _create_task(self, result: dict | None) -> None:
         if not result:
             return
@@ -897,11 +955,15 @@ class ThingsApp(App):
     def _optimistic_insert(self, r: dict) -> None:
         """Show the new to-do in the current view right away if it belongs."""
         k, when, dest = self.view_spec.kind, r["when"], r["dest"]
+        heading = next(
+            (item for item in self.current_headings if item.get("id") == dest), None
+        )
         belongs = (
             (k == "inbox" and dest in (None, "inbox") and not when)
             or (k == "today" and when in ("today", "evening"))
             or (k == "someday" and when == "someday")
             or (k in ("project", "area") and dest == self.view_spec.id)
+            or (k == "project" and heading is not None)
         )
         if not belongs:
             return
@@ -910,7 +972,10 @@ class ThingsApp(App):
             "title": r["title"], "status": "incomplete",
             "start": {"bucket": "anytime", "evening": when == "evening",
                       "scheduled_at": None},
-            "project": None, "area": None, "heading": None,
+            "project": heading.get("project") if heading else None,
+            "area": None,
+            "heading": ({"id": heading["id"], "title": heading.get("title")}
+                        if heading else None),
             "tags": [{"title": t.strip()} for t in r["tags"].split(",") if t.strip()],
             "dates": {"deadline_at": (r["deadline"] + "T00:00:00+00:00")
                       if r["deadline"] else None},
@@ -1408,8 +1473,11 @@ class ThingsApp(App):
                 return
             idx = self._tl.highlighted
             k = self.view_spec.kind
+            heading = next(
+                (item for item in self.current_headings if item.get("id") == dest), None
+            )
             leaves = (
-                (k in ("project", "area") and dest != self.view_spec.id)
+                (k in ("project", "area") and dest != self.view_spec.id and heading is None)
                 or (k == "inbox" and dest != "inbox")
             )
             if idx is not None:
@@ -1419,14 +1487,23 @@ class ThingsApp(App):
                     if dest == "inbox":
                         task["project"] = None
                         task["area"] = None
+                        task["heading"] = None
                     else:
                         proj = next((p for p in self.projects if p["id"] == dest), None)
                         area = next((a for a in self.areas if a["id"] == dest), None)
                         if proj:
                             task["project"] = {"id": dest, "title": proj.get("title")}
+                            task["heading"] = None
                         elif area:
                             task["project"] = None
                             task["area"] = {"id": dest, "title": area.get("title")}
+                            task["heading"] = None
+                        elif heading:
+                            task["project"] = heading.get("project")
+                            task["area"] = None
+                            task["heading"] = {
+                                "id": heading["id"], "title": heading.get("title")
+                            }
                     self._restyle_row(idx, task)
             self.notify(f"moved “{task.get('title') or ''}”")
             self._do_move(task["id"], task.get("title") or "", dest)

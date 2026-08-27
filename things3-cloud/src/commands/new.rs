@@ -27,7 +27,7 @@ pub struct NewArgs {
         long = "in",
         short = 'i',
         default_value = "inbox",
-        help = "Container: inbox, clear, project UUID/prefix, or area UUID/prefix"
+        help = "Container: inbox, heading, project, or area UUID/prefix"
     )]
     pub in_target: String,
     #[arg(
@@ -109,7 +109,20 @@ fn task_bucket(task: &Task, store: &crate::store::ThingsStore) -> Vec<String> {
     vec!["task-root".to_string(), i32::from(task.start).to_string()]
 }
 
-fn props_bucket(props: &TaskProps) -> Vec<String> {
+fn props_bucket(props: &TaskProps, store: &crate::store::ThingsStore) -> Vec<String> {
+    if let Some(heading_uuid) = props.action_group_ids.first() {
+        let project_uuid = store
+            .tasks_by_uuid
+            .get(heading_uuid)
+            .and_then(|heading| heading.project.as_ref())
+            .map(ToString::to_string)
+            .unwrap_or_default();
+        return vec![
+            "task-project".to_string(),
+            project_uuid,
+            heading_uuid.to_string(),
+        ];
+    }
     if let Some(project_uuid) = props.parent_project_ids.first() {
         return vec![
             "task-project".to_string(),
@@ -226,29 +239,41 @@ fn build_new_plan(
 
     let in_target = args.in_target.trim();
     if !in_target.eq_ignore_ascii_case("inbox") {
-        let (project, _, _) = store.resolve_mark_identifier(in_target);
+        let (container, _, _) = store.resolve_task_identifier(in_target);
         let (area, _, _) = store.resolve_area_identifier(in_target);
-        let project_uuid = project.as_ref().and_then(|p| {
-            if p.is_project() {
-                Some(p.uuid.clone())
+        let project_uuid = container.as_ref().and_then(|item| {
+            if item.is_project() && !item.trashed {
+                Some(item.uuid.clone())
+            } else {
+                None
+            }
+        });
+        let heading_uuid = container.as_ref().and_then(|item| {
+            if item.is_heading() && !item.trashed {
+                Some(item.uuid.clone())
             } else {
                 None
             }
         });
         let area_uuid = area.map(|a| a.uuid);
 
-        if project_uuid.is_some() && area_uuid.is_some() {
+        if (project_uuid.is_some() || heading_uuid.is_some()) && area_uuid.is_some() {
             return Err(format!(
-                "Ambiguous --in target '{}' (matches project and area).",
+                "Ambiguous --in target '{}' (matches a Things item and area).",
                 in_target
             ));
         }
 
-        if project.is_some() && project_uuid.is_none() {
-            return Err("--in target must be inbox, a project ID, or an area ID.".to_string());
+        if container.is_some() && project_uuid.is_none() && heading_uuid.is_none() {
+            return Err(
+                "--in target must be inbox, a heading ID, a project ID, or an area ID.".to_string(),
+            );
         }
 
-        if let Some(project_uuid) = project_uuid {
+        if let Some(heading_uuid) = heading_uuid {
+            props.action_group_ids = vec![heading_uuid];
+            props.start_location = TaskStart::Anytime;
+        } else if let Some(project_uuid) = project_uuid {
             props.parent_project_ids = vec![project_uuid];
             props.start_location = TaskStart::Anytime;
         } else if let Some(area_uuid) = area_uuid {
@@ -302,14 +327,14 @@ fn build_new_plan(
             Ok(None) => return Err("--deadline requires YYYY-MM-DD".to_string()),
             Err(err) => return Err(err),
         };
-        props.deadline = Some(day_to_timestamp(parsed) as i64);
+        props.deadline = Some(day_to_timestamp(parsed));
     }
 
     let anchor_is_today = anchor
         .as_ref()
         .map(|a| a.start == TaskStart::Anytime && (a.is_today(&today) || a.evening))
         .unwrap_or(false);
-    let target_bucket = props_bucket(&props);
+    let target_bucket = props_bucket(&props, store);
 
     if let Some(anchor) = &anchor
         && !anchor_is_today
@@ -498,6 +523,7 @@ mod tests {
     const INBOX_ANCHOR_UUID: &str = "A7h5eCi24RvAWKC3Hv3muf";
     const INBOX_OTHER_UUID: &str = "KGvAPpMrzHAKMdgMiERP1V";
     const PROJECT_UUID: &str = "JFdhhhp37fpryAKu8UXwzK";
+    const HEADING_UUID: &str = "3H9jsMx3kYMrQ4M7DReSRn";
     const AREA_UUID: &str = "74rgJf6Qh9wYp2TcVk8mNB";
     const TAG_A_UUID: &str = "By8mN2qRk5Wv7Xc9Dt3HpL";
     const TAG_B_UUID: &str = "Cv9nP3sTk6Xw8Yd4Eu5JqM";
@@ -551,6 +577,26 @@ mod tests {
                     item_type: TaskType::Project,
                     status: TaskStatus::Incomplete,
                     start_location: TaskStart::Anytime,
+                    sort_index: 0,
+                    creation_date: Some(1.0),
+                    modification_date: Some(1.0),
+                    ..Default::default()
+                },
+            ),
+        )
+    }
+
+    fn heading(uuid: &str, title: &str, project_uuid: &str) -> (String, WireObject) {
+        (
+            uuid.to_string(),
+            WireObject::create(
+                EntityType::Task7,
+                TaskProps {
+                    title: title.to_string(),
+                    item_type: TaskType::Heading,
+                    status: TaskStatus::Incomplete,
+                    start_location: TaskStart::Anytime,
+                    parent_project_ids: vec![project_uuid.parse().expect("project id")],
                     sort_index: 0,
                     creation_date: Some(1.0),
                     modification_date: Some(1.0),
@@ -641,6 +687,7 @@ mod tests {
 
         let full_store = build_store(vec![
             project(PROJECT_UUID, "Roadmap"),
+            heading(HEADING_UUID, "Build", PROJECT_UUID),
             area(AREA_UUID, "Work"),
             tag(TAG_A_UUID, "urgent"),
             tag(TAG_B_UUID, "backend"),
@@ -672,6 +719,29 @@ mod tests {
         assert_eq!(p["st"], json!(1));
         assert_eq!(p["tg"], json!([TAG_A_UUID, TAG_B_UUID]));
         assert_eq!(p["dd"], json!(deadline_ts));
+
+        let in_heading = build_new_plan(
+            &NewArgs {
+                title: "Heading task".to_string(),
+                in_target: HEADING_UUID.to_string(),
+                when: None,
+                before_id: None,
+                after_id: None,
+                notes: String::new(),
+                tags: None,
+                deadline_date: None,
+            },
+            &full_store,
+            NOW,
+            TODAY,
+            &mut id_gen,
+        )
+        .expect("in heading");
+        let p = &serde_json::to_value(in_heading.changes).expect("to value")[NEW_UUID]["p"];
+        assert_eq!(p["agr"], json!([HEADING_UUID]));
+        assert_eq!(p["pr"], json!([]));
+        assert_eq!(p["ar"], json!([]));
+        assert_eq!(p["st"], json!(1));
     }
 
     #[test]

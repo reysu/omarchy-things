@@ -18,6 +18,22 @@ things3 schedule <task-id> --deadline 2026-04-10
 things3 mark <task-id> --done
 ```
 
+### Project headings
+
+Headings are native Things Cloud records and sync with the Things apps:
+
+```sh
+things3 headings list <project-id>
+things3 headings new "Development" --project <project-id>
+things3 headings edit <heading-id> --title "Build"
+things3 new "Ship feature" --in <heading-id>
+things3 edit <task-id> --move <heading-id>
+```
+
+Use `--before <heading-id>` or `--after <heading-id>` when creating a heading
+to control its position. `headings list` also supports the global `--json`
+flag for automation.
+
 ## Install
 
 Via Homebrew:
@@ -86,6 +102,7 @@ Roadmap items are tracked in [`ROADMAP.md`](ROADMAP.md).
 
 **Projects / Areas / Tags**
 - [x] `projects new` / `projects edit`
+- [x] `headings list` / `headings new` / `headings edit`
 - [x] `areas new` / `areas edit`
 - [x] `tags new` / `tags edit` / `tags delete`
 

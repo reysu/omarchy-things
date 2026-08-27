@@ -726,6 +726,7 @@ class HelpScreen(ModalScreen):
   n · ctrl+n        new to-do (one line) N                new straight to inbox
                     tokens: @today @tonight @tomorrow @fri @aug 24 @08-24-26 @someday
                             --due <date>   #project   +tag   "notes"
+  H [dim]in a project[/]    new heading
   e                 edit                 m                move to list
   s                 schedule (picker)    d                deadline
   backspace         delete (asks first)  ctrl+z           undo a delete

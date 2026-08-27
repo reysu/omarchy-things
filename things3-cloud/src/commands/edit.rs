@@ -32,7 +32,7 @@ pub struct EditArgs {
     #[arg(
         long = "move",
         short = 'm',
-        help = "Move to Inbox, clear, project UUID/prefix, or area UUID/prefix"
+        help = "Move to Inbox, clear, heading, project, or area UUID/prefix"
     )]
     pub move_target: Option<String>,
     #[command(flatten)]
@@ -211,31 +211,45 @@ fn build_edit_plan(
         } else if move_l == "clear" {
             labels.push("move=clear".to_string());
         } else {
-            let (project_opt, _, _) = store.resolve_mark_identifier(&move_raw);
+            let (container_opt, _, _) = store.resolve_task_identifier(&move_raw);
             let (area_opt, _, _) = store.resolve_area_identifier(&move_raw);
 
-            let project_uuid = project_opt.as_ref().and_then(|p| {
-                if p.is_project() {
-                    Some(p.uuid.clone())
+            let project_uuid = container_opt.as_ref().and_then(|item| {
+                if item.is_project() && !item.trashed {
+                    Some(item.uuid.clone())
+                } else {
+                    None
+                }
+            });
+            let heading_uuid = container_opt.as_ref().and_then(|item| {
+                if item.is_heading() && !item.trashed {
+                    Some(item.uuid.clone())
                 } else {
                     None
                 }
             });
             let area_uuid = area_opt.as_ref().map(|a| a.uuid.clone());
 
-            if project_uuid.is_some() && area_uuid.is_some() {
+            if (project_uuid.is_some() || heading_uuid.is_some()) && area_uuid.is_some() {
                 return Err(format!(
-                    "Ambiguous --move target '{}' (matches project and area).",
+                    "Ambiguous --move target '{}' (matches a Things item and area).",
                     move_raw
                 ));
             }
-            if project_opt.is_some() && project_uuid.is_none() {
+            if container_opt.is_some() && project_uuid.is_none() && heading_uuid.is_none() {
                 return Err(
-                    "--move target must be Inbox, clear, a project ID, or an area ID.".to_string(),
+                    "--move target must be Inbox, clear, a heading ID, a project ID, or an area ID."
+                        .to_string(),
                 );
             }
 
-            if let Some(project_uuid) = project_uuid {
+            if let Some(heading_uuid) = heading_uuid {
+                shared_update.action_group_ids = Some(vec![heading_uuid]);
+                shared_update.parent_project_ids = Some(vec![]);
+                shared_update.area_ids = Some(vec![]);
+                move_from_inbox_st = Some(TaskStart::Anytime);
+                labels.push(format!("move={move_raw}"));
+            } else if let Some(project_uuid) = project_uuid {
                 let project_id = project_uuid;
                 shared_update.parent_project_ids = Some(vec![project_id]);
                 shared_update.area_ids = Some(vec![]);
@@ -479,6 +493,7 @@ mod tests {
     const TASK_UUID: &str = "A7h5eCi24RvAWKC3Hv3muf";
     const TASK_UUID2: &str = "3H9jsMx3kYMrQ4M7DReSRn";
     const PROJECT_UUID: &str = "KGvAPpMrzHAKMdgMiERP1V";
+    const HEADING_UUID: &str = "JFdhhhp37fpryAKu8UXwzK";
     const AREA_UUID: &str = "MpkEei6ybkFS2n6SXvwfLf";
     const CHECK_A: &str = "5uwoHPi5m5i8QJa6Rae6Cn";
     const CHECK_B: &str = "CwhFwmHxjHkR7AFn9aJH9Q";
@@ -547,6 +562,26 @@ mod tests {
                     item_type: TaskType::Project,
                     status: TaskStatus::Incomplete,
                     start_location: TaskStart::Anytime,
+                    sort_index: 0,
+                    creation_date: Some(1.0),
+                    modification_date: Some(1.0),
+                    ..Default::default()
+                },
+            ),
+        )
+    }
+
+    fn heading(uuid: &str, title: &str, project_uuid: &str) -> (String, WireObject) {
+        (
+            uuid.to_string(),
+            WireObject::create(
+                EntityType::Task7,
+                TaskProps {
+                    title: title.to_string(),
+                    item_type: TaskType::Heading,
+                    status: TaskStatus::Incomplete,
+                    start_location: TaskStart::Anytime,
+                    parent_project_ids: vec![project_uuid.parse().expect("project id")],
                     sort_index: 0,
                     creation_date: Some(1.0),
                     modification_date: Some(1.0),
@@ -642,6 +677,7 @@ mod tests {
         let store = build_store(vec![
             task(TASK_UUID, "Movable"),
             project(PROJECT_UUID, "Roadmap"),
+            heading(HEADING_UUID, "Build", PROJECT_UUID),
             area(AREA_UUID, "Work"),
         ]);
 
@@ -713,6 +749,31 @@ mod tests {
         .expect("project move plan");
         let p = assert_task_update(&project_move, TASK_UUID);
         assert_eq!(p.get("pr"), Some(&json!([PROJECT_UUID])));
+        assert_eq!(p.get("st"), Some(&json!(1)));
+
+        let heading_move = build_edit_plan(
+            &EditArgs {
+                task_ids: vec![IdentifierToken::from(TASK_UUID)],
+                title: None,
+                notes: None,
+                move_target: Some(HEADING_UUID.to_string()),
+                tag_delta: TagDeltaArgs {
+                    add_tags: None,
+                    remove_tags: None,
+                },
+                add_checklist: vec![],
+                remove_checklist: None,
+                rename_checklist: vec![],
+            },
+            &store,
+            NOW,
+            &mut id_gen,
+        )
+        .expect("heading move plan");
+        let p = assert_task_update(&heading_move, TASK_UUID);
+        assert_eq!(p.get("agr"), Some(&json!([HEADING_UUID])));
+        assert_eq!(p.get("pr"), Some(&json!([])));
+        assert_eq!(p.get("ar"), Some(&json!([])));
         assert_eq!(p.get("st"), Some(&json!(1)));
     }
 
@@ -923,7 +984,7 @@ mod tests {
         .expect_err("invalid move target kind");
         assert_eq!(
             err,
-            "--move target must be Inbox, clear, a project ID, or an area ID."
+            "--move target must be Inbox, clear, a heading ID, a project ID, or an area ID."
         );
     }
 
@@ -958,7 +1019,7 @@ mod tests {
         .expect_err("ambiguous move target");
         assert_eq!(
             err,
-            "Ambiguous --move target 'ABCD1234' (matches project and area)."
+            "Ambiguous --move target 'ABCD1234' (matches a Things item and area)."
         );
     }
 

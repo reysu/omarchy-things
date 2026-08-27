@@ -5,6 +5,7 @@ pub mod completions;
 pub mod delete;
 pub mod edit;
 pub mod find;
+pub mod headings;
 pub mod inbox;
 pub mod logbook;
 pub mod mark;
@@ -99,6 +100,8 @@ pub enum Commands {
     Projects(projects::ProjectsArgs),
     #[command(about = "Show all tasks in a project")]
     Project(project::ProjectArgs),
+    #[command(about = "Show, create, or edit project headings")]
+    Headings(headings::HeadingsArgs),
     #[command(about = "Show or create areas")]
     Areas(areas::AreasArgs),
     #[command(about = "Show projects and tasks in an area")]
@@ -143,6 +146,7 @@ impl Command for Commands {
             Commands::Logbook(args) => args.run_with_ctx(cli, out, ctx),
             Commands::Projects(args) => args.run_with_ctx(cli, out, ctx),
             Commands::Project(args) => args.run_with_ctx(cli, out, ctx),
+            Commands::Headings(args) => args.run_with_ctx(cli, out, ctx),
             Commands::Areas(args) => args.run_with_ctx(cli, out, ctx),
             Commands::Area(args) => args.run_with_ctx(cli, out, ctx),
             Commands::Tags(args) => args.run_with_ctx(cli, out, ctx),

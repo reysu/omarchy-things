@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## 2026-08-27
+
+### Added
+
+- `things3-cloud/src/commands/headings.rs` - Added native Things Cloud heading listing, creation, positioning, and renaming commands.
+- `things3-cloud/trycmd/headings/workflow.in/journal.json` - Added a deterministic project-heading fixture.
+- `things3-cloud/trycmd/headings/workflow.trycmd` - Added CLI snapshots for heading reads, writes, renames, and task assignment.
+
+### Modified
+
+- `things-tui/README.md` - Documented heading creation, rendering, destinations, and cross-device sync.
+- `things-tui/things_tui/app.py` - Added project heading creation, empty-heading rendering, and heading-aware task destinations.
+- `things-tui/things_tui/backend.py` - Added heading CLI wrappers and merged real heading records into project views.
+- `things-tui/things_tui/modals.py` - Added the project heading shortcut to in-app help.
+- `things3-cloud/README.md` - Documented heading commands and task placement.
+- `things3-cloud/src/commands/edit.rs` - Allowed moving existing to-dos into headings.
+- `things3-cloud/src/commands/mod.rs` - Registered the headings command group.
+- `things3-cloud/src/commands/new.rs` - Allowed creating to-dos directly inside headings.
+- `things3-cloud/tests/cli_trycmd.rs` - Registered heading workflow snapshots.
+
 ## 2026-08-26
 
 ### Added

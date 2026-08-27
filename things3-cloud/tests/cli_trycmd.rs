@@ -44,6 +44,11 @@ fn cli_trycmd_find() {
 }
 
 #[test]
+fn cli_trycmd_headings() {
+    run_trycmd_cases("trycmd/headings/**/*.trycmd");
+}
+
+#[test]
 fn cli_trycmd_inbox() {
     run_trycmd_cases("trycmd/inbox/**/*.trycmd");
 }

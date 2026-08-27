@@ -69,6 +69,7 @@ Press `?` in the app for the full reference. Highlights:
 |---|---|---|---|
 | `space` / `ctrl+k` | complete | `c` / `ctrl+alt+k` | cancel |
 | `n` / `ctrl+n` | new to-do | `e` | edit |
+| `H` in a project | new heading | `m` | move to list or heading |
 | `enter` | open task | `m` | move to list |
 | `s` | schedule picker | `d` | deadline |
 | `ctrl+t` | → Today | `ctrl+e` | → This Evening |
@@ -90,6 +91,11 @@ results list matching lists above matching to-dos.
 Mouse: click a task's `○` to complete it, click to select, double-click to
 open. In the open-task view the same `ctrl+t/e/s/r`, `m`, `s`, `d` shortcuts
 apply, and checklist items toggle on click.
+
+Project headings are genuine Things Cloud headings. Press `H` while viewing a
+project to create one; empty headings are shown immediately, and headings in
+the current project appear as destinations when creating or moving a to-do.
+They sync to the Things apps on iPhone, iPad, and Mac.
 
 ## Instant feedback
 
