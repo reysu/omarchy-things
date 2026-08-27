@@ -7,6 +7,7 @@ Syntax in the input line:
 
 from __future__ import annotations
 
+import json
 import platform
 import shlex
 import subprocess
@@ -129,9 +130,11 @@ class QuickAddApp(App):
         settle = f"{shlex.quote(backend.THINGS_BIN)} --log-level off today"
         msg = "failed to add: " + parsed["title"]
         if platform.system() == "Darwin":
-            notify = (
-                "osascript -e "
-                + shlex.quote(f'display notification {msg!r} with title "things"')
+            # AppleScript takes double-quoted literals only, so repr() -- which
+            # emits Python's single-quoted form -- is a syntax error there.
+            notify = "osascript -e " + shlex.quote(
+                f'display notification {json.dumps(msg, ensure_ascii=False)} '
+                'with title "things"'
             )
         else:
             notify = f"notify-send 'things' {shlex.quote(msg)}"
