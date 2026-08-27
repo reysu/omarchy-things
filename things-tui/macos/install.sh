@@ -19,7 +19,7 @@ fi
 pipx ensurepath >/dev/null 2>&1 || true
 echo "installing things-tui…"
 pipx install --force "$here/.."
-cat <<MSG
+cat <<'MSG'
 
 Installed `things-tui`. Next (open a NEW terminal so PATH picks up ~/.local/bin):
   1. things3 set-auth          # Things Cloud email + password (stored locally)
