@@ -152,7 +152,7 @@ def trash() -> list[dict]:
         return []
     items = []
     for uuid, ent in state.items():
-        if not isinstance(ent, dict) or ent.get("entity_type") != "Task6":
+        if not isinstance(ent, dict) or not (ent.get("entity_type") or "").startswith("Task"):
             continue
         props = ent.get("properties", {})
         t = props.get("Task") if isinstance(props, dict) else None
