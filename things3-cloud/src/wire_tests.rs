@@ -1,10 +1,13 @@
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use crate::{
         ids::ThingsId,
+        store::{ThingsStore, fold_items},
         wire::{
-            checklist::ChecklistItemProps,
-            recurrence::{FrequencyUnit, RecurrenceRule},
+            checklist::{ChecklistItemPatch, ChecklistItemProps},
+            recurrence::{FrequencyUnit, RecurrenceRule, RecurrenceType},
             tags::{TagPatch, TagProps},
             task::{TaskPatch, TaskProps, TaskStart, TaskStatus},
             wire_object::{EntityType, OperationType, Properties, WireItem, WireObject},
@@ -100,9 +103,33 @@ mod tests {
         let parsed: TaskProps = serde_json::from_str(json).expect("valid task props with nulls");
         assert_eq!(parsed.today_sort_index, 0);
         assert_eq!(parsed.due_date_offset, 0);
-        assert_eq!(parsed.checklist_item_count, 0);
+        assert_eq!(parsed.instance_creation_count, 0);
         assert_eq!(parsed.evening_bit, 0);
         assert!(!parsed.leaves_tombstone);
+    }
+
+    #[test]
+    fn task_props_maps_legacy_instance_creation_fields() {
+        let json = r#"{
+            "icsd": 1700000000,
+            "acrd": 1700086400,
+            "icc": 12,
+            "icp": true
+        }"#;
+
+        let parsed: TaskProps = serde_json::from_str(json).expect("valid task props");
+
+        assert_eq!(parsed.instance_creation_start_date, Some(1_700_000_000));
+        assert_eq!(parsed.after_completion_reference_date, Some(1_700_086_400));
+        assert_eq!(parsed.instance_creation_count, 12);
+        assert!(parsed.instance_creation_paused);
+
+        let encoded = serde_json::to_value(parsed).expect("serialize task props");
+        assert_eq!(
+            encoded.get("icsd").and_then(|v| v.as_i64()),
+            Some(1_700_000_000)
+        );
+        assert_eq!(encoded.get("icc").and_then(|v| v.as_i64()), Some(12));
     }
 
     #[test]
@@ -175,6 +202,17 @@ mod tests {
     }
 
     #[test]
+    fn checklist_patch_preserves_explicit_null_stop_date() {
+        let patch: ChecklistItemPatch =
+            serde_json::from_str(r#"{"sp":null}"#).expect("deserialize checklist patch");
+        assert_eq!(patch.stop_date, Some(None));
+
+        let absent: ChecklistItemPatch =
+            serde_json::from_str("{}").expect("deserialize empty checklist patch");
+        assert_eq!(absent.stop_date, None);
+    }
+
+    #[test]
     fn recurrence_rule_defaults_match_protocol() {
         let parsed: RecurrenceRule = serde_json::from_str("{}")
             .expect("empty recurrence should deserialize with protocol defaults");
@@ -182,7 +220,73 @@ mod tests {
         assert_eq!(parsed.frequency_unit, FrequencyUnit::Weekly);
         assert_eq!(parsed.frequency_amount, 1);
         assert_eq!(parsed.end_date, 64_092_211_200);
-        assert_eq!(parsed.recurrence_rule_version, 4);
+        assert_eq!(parsed.version, 4);
+    }
+
+    #[test]
+    fn recurrence_rule_maps_all_legacy_wire_fields() {
+        let json = r#"{
+            "tp": 1,
+            "fu": 8,
+            "fa": 2,
+            "of": [{"weekday": 3}],
+            "sr": 1700000000,
+            "ia": 1700086400,
+            "ed": 1700172800,
+            "rc": 5,
+            "ts": -1,
+            "rrv": 3
+        }"#;
+
+        let parsed: RecurrenceRule = serde_json::from_str(json).expect("valid recurrence rule");
+
+        assert_eq!(parsed.recurrence_type, RecurrenceType::AfterCompletion);
+        assert_eq!(parsed.frequency_unit, FrequencyUnit::Monthly);
+        assert_eq!(parsed.frequency_amount, 2);
+        assert_eq!(
+            parsed.offsets,
+            vec![BTreeMap::from([(
+                "weekday".to_string(),
+                serde_json::json!(3),
+            )])]
+        );
+        assert_eq!(parsed.start_date, Some(1_700_000_000));
+        assert_eq!(parsed.interval_anchor, Some(1_700_086_400));
+        assert_eq!(parsed.end_date, 1_700_172_800);
+        assert_eq!(parsed.repeat_count, 5);
+        assert_eq!(parsed.time_span_in_days, -1);
+        assert_eq!(parsed.version, 3);
+
+        let encoded = serde_json::to_value(parsed).expect("serialize recurrence rule");
+        assert_eq!(encoded.get("tp").and_then(|v| v.as_i64()), Some(1));
+        assert_eq!(encoded.get("fu").and_then(|v| v.as_i64()), Some(8));
+        assert_eq!(
+            encoded.get("sr").and_then(|v| v.as_i64()),
+            Some(1_700_000_000)
+        );
+        assert_eq!(
+            encoded.get("ia").and_then(|v| v.as_i64()),
+            Some(1_700_086_400)
+        );
+        assert_eq!(encoded.get("ts").and_then(|v| v.as_i64()), Some(-1));
+        assert_eq!(encoded.get("rrv").and_then(|v| v.as_i64()), Some(3));
+    }
+
+    #[test]
+    fn recurrence_frequency_units_match_wire_values() {
+        for (wire_value, expected) in [
+            (8, FrequencyUnit::Monthly),
+            (16, FrequencyUnit::Daily),
+            (256, FrequencyUnit::Weekly),
+        ] {
+            let parsed: FrequencyUnit =
+                serde_json::from_value(serde_json::json!(wire_value)).expect("frequency unit");
+            assert_eq!(parsed, expected);
+            assert_eq!(
+                serde_json::to_value(parsed).expect("serialize frequency unit"),
+                serde_json::json!(wire_value)
+            );
+        }
     }
 
     #[test]
@@ -210,38 +314,14 @@ mod tests {
     #[test]
     fn unknown_entity_values_round_trip() {
         let parsed: WireObject =
-            serde_json::from_str(r#"{"t":1,"e":"Task99","p":{}}"#).expect("deserialize");
+            serde_json::from_str(r#"{"t":1,"e":"Task8","p":{}}"#).expect("deserialize");
         assert_eq!(
             parsed.entity_type,
-            Some(EntityType::Unknown("Task99".to_string()))
+            Some(EntityType::Unknown("Task8".to_string()))
         );
 
         let json = serde_json::to_string(&parsed).expect("serialize unknown entity");
-        assert!(json.contains("\"e\":\"Task99\""));
-    }
-
-    #[test]
-    fn task7_parses_as_a_task() {
-        let create: WireObject =
-            serde_json::from_str(r#"{"t":0,"e":"Task7","p":{"tt":"A","ss":0,"tp":0,"st":0}}"#)
-                .expect("deserialize Task7 create");
-        assert_eq!(create.entity_type, Some(EntityType::Task7));
-        match create.properties().expect("typed properties") {
-            Properties::TaskCreate(props) => {
-                assert_eq!(props.title, "A");
-                assert_eq!(props.status, TaskStatus::Incomplete);
-            }
-            other => panic!("unexpected variant: {other:?}"),
-        }
-
-        let update: WireObject = serde_json::from_str(r#"{"t":1,"e":"Task7","p":{"ss":3}}"#)
-            .expect("deserialize Task7 update");
-        match update.properties().expect("typed properties") {
-            Properties::TaskUpdate(props) => {
-                assert_eq!(props.status, Some(TaskStatus::Completed));
-            }
-            other => panic!("unexpected variant: {other:?}"),
-        }
+        assert!(json.contains("\"e\":\"Task8\""));
     }
 
     #[test]
@@ -261,6 +341,59 @@ mod tests {
     }
 
     #[test]
+    fn task7_dispatches_to_typed_task_properties() {
+        let parsed: WireObject =
+            serde_json::from_str(r#"{"t":1,"e":"Task7","p":{"tt":"Current","rp":{"version":1}}}"#)
+                .expect("deserialize Task7 update");
+
+        assert_eq!(parsed.entity_type, Some(EntityType::Task7));
+        let Properties::TaskUpdate(patch) = parsed.payload else {
+            panic!("Task7 should use typed task properties");
+        };
+        assert_eq!(patch.title.as_deref(), Some("Current"));
+        assert_eq!(
+            patch.repeater,
+            Some(Some(serde_json::json!({"version": 1})))
+        );
+    }
+
+    #[test]
+    fn task7_create_materializes_in_the_store() {
+        let item: WireItem = serde_json::from_str(
+            r#"{"A7h5eCi24RvAWKC3Hv3muf":{"t":0,"e":"Task7","p":{"tt":"Current","ss":0}}}"#,
+        )
+        .expect("deserialize Task7 create");
+        let store = ThingsStore::from_raw_state(&fold_items([item]));
+        let task = store
+            .get_task("A7h5eCi24RvAWKC3Hv3muf")
+            .expect("materialized Task7 task");
+
+        assert_eq!(task.title, "Current");
+        assert_eq!(task.entity, EntityType::Task7);
+    }
+
+    #[test]
+    fn malformed_non_task_payloads_still_fail_deserialization() {
+        let result =
+            serde_json::from_str::<WireObject>(r#"{"t":1,"e":"Area3","p":{"ix":"future"}}"#);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn entity_type_distinguishes_known_and_future_tasks() {
+        assert!(EntityType::Task7.is_task());
+        assert!(EntityType::Task6.can_upgrade_to_task7());
+        assert!(EntityType::Task7.can_upgrade_to_task7());
+        assert!(EntityType::Task7.is_task_family());
+        assert!(!EntityType::Task4.can_upgrade_to_task7());
+        assert!(!EntityType::Unknown("Task8".to_string()).is_task());
+        assert!(!EntityType::Unknown("Task8".to_string()).can_upgrade_to_task7());
+        assert!(EntityType::Unknown("Task8".to_string()).is_task_family());
+        assert!(!EntityType::Unknown("TaskFuture".to_string()).is_task_family());
+    }
+
+    #[test]
     fn typed_properties_dispatch_for_delete() {
         let parsed: WireObject =
             serde_json::from_str(r#"{"t":2,"e":"Task6","p":{}}"#).expect("deserialize");
@@ -270,12 +403,18 @@ mod tests {
 
     #[test]
     fn task_patch_preserves_explicit_null_for_clearable_fields() {
-        let patch: TaskPatch = serde_json::from_str(r#"{"sr":null,"tir":null,"sp":null}"#)
-            .expect("deserialize patch with nulls");
+        let patch: TaskPatch =
+            serde_json::from_str(r#"{"sr":null,"tir":null,"sp":null,"rp":null,"md":null}"#)
+                .expect("deserialize patch with nulls");
 
         assert_eq!(patch.scheduled_date, Some(None));
         assert_eq!(patch.today_index_reference, Some(None));
         assert_eq!(patch.stop_date, Some(None));
+        assert_eq!(patch.repeater, Some(None));
+        assert_eq!(patch.modification_date, Some(None));
+
+        let absent: TaskPatch = serde_json::from_str("{}").expect("deserialize empty patch");
+        assert_eq!(absent.modification_date, None);
     }
 
     #[test]

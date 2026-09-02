@@ -97,11 +97,11 @@ at [`things3-cloud/`](things3-cloud/) — a fork of Evan Purkhiser's
 [things3-cloud](https://github.com/evanpurkhiser/things3-cloud) (MIT) —
 and `setup` builds and installs it.
 
-> **Why bundle a fork?** The released CLI (0.8.3) only understands the
-> `Task6` wire entity. Newer Things clients also emit `Task7` — an identical
-> property set, just a version bump — and stock builds silently discard those
-> records, so to-dos and completions made on those devices never appear.
-> The bundled copy carries our fix.
+> **Why bundle a fork?** The widget depends on bounded Cloud responses,
+> race-safe local authentication, and compatibility with long-lived Things
+> accounts whose history contains legacy `ACTIONGROUP-<UUID>` identifiers.
+> The bundled copy tracks upstream 0.9.0 while carrying those additional
+> safeguards.
 
 A Nerd Font in the bar (Omarchy's default setup qualifies).
 

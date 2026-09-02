@@ -441,10 +441,10 @@ fn build_edit_plan(
         }
 
         if !update.is_empty() {
-            update.modification_date = Some(now);
+            update.modification_date = Some(Some(now));
             changes.insert(
                 task.uuid.to_string(),
-                WireObject::update(EntityType::from(task.entity.clone()), update),
+                WireObject::update(EntityType::Task7, update),
             );
         }
     }
@@ -609,7 +609,7 @@ mod tests {
     fn assert_task_update(plan: &EditPlan, uuid: &str) -> BTreeMap<String, serde_json::Value> {
         let obj = plan.changes.get(uuid).expect("missing task change");
         assert_eq!(obj.operation_type, OperationType::Update);
-        assert_eq!(obj.entity_type, Some(EntityType::Task6));
+        assert_eq!(obj.entity_type, Some(EntityType::Task7));
         obj.properties_map()
     }
 
@@ -1022,6 +1022,7 @@ mod tests {
         let patch = ChecklistItemPatch {
             title: Some("Step".to_string()),
             status: Some(TaskStatus::Incomplete),
+            stop_date: None,
             task_ids: Some(vec![
                 TASK_UUID
                     .parse::<crate::ids::ThingsId>()
