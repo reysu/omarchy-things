@@ -331,6 +331,7 @@ Panel {
       root.view = parsed.view
     if (typeof parsed.pinnedId === "string") root.pinnedId = parsed.pinnedId
     if (typeof parsed.pinnedTitle === "string") root.pinnedTitle = parsed.pinnedTitle
+    if (parsed.autopin === true) root.autopin = true
     root.settingsLoaded = true
   }
 
@@ -338,7 +339,8 @@ Panel {
     settingsFile.setText(JSON.stringify({
       view: root.view,
       pinnedId: root.pinnedId,
-      pinnedTitle: root.pinnedTitle
+      pinnedTitle: root.pinnedTitle,
+      autopin: root.autopin
     }, null, 2) + "\n")
   }
 
@@ -518,6 +520,7 @@ Panel {
         }
       }
     }
+    autopinApply()
     // Re-point the drill-in at the refreshed project object (or back out if
     // the project finished/vanished server-side).
     if (root.activeProject) {
@@ -537,7 +540,10 @@ Panel {
     if (taskId === "" || root.completingTaskIds.indexOf(taskId) !== -1) return
     if (String(taskId).indexOf("pending-") === 0) return
     for (var q = 0; q < root.dropQueue.length; q++) if (root.dropQueue[q].id === taskId) return
-    if (taskId === root.pinnedId && root.view !== "done") root.unpin()
+    if (taskId === root.pinnedId && root.view !== "done") {
+      root.unpin()
+      Qt.callLater(root.autopinApply)   // runs after completingTaskIds updates
+    }
     root.noteMutation()
     root.completingTaskIds = root.completingTaskIds.concat([taskId])
     root.pendingRemovalIds.push(taskId)
@@ -848,6 +854,33 @@ Panel {
   property string pinnedId: ""
   property string pinnedTitle: ""
 
+  // ---- Autopin: keep the TOP incomplete Today to-do pinned; completing it
+  //      pins the next one, until Today is empty. Toggled from any row's
+  //      right-click menu; persists like the manual pin does.
+  property bool autopin: false
+
+  function autopinApply() {
+    if (!root.autopin || root.pinnedId !== "") return
+    for (var i = 0; i < root.todayTasks.length; i++) {
+      var t = root.todayTasks[i]
+      if (!t || t.status !== "incomplete" || t._removing) continue
+      if (String(t.id).indexOf("pending-") === 0) continue
+      if (root.completingTaskIds.indexOf(t.id) !== -1) continue
+      if (root.pendingRemovalIds.indexOf(t.id) !== -1) continue
+      root.pinnedId = t.id
+      root.pinnedTitle = t.title || ""
+      persistSettings()
+      return
+    }
+  }
+
+  function toggleAutopin() {
+    root.autopin = !root.autopin
+    if (!root.autopin) { root.unpin(); return }   // unpin() persists
+    persistSettings()
+    autopinApply()
+  }
+
   // Checklist toggles in flight: the row draws the flipped state until the
   // reconcile refresh lands, then real data takes over.
   property var pendingChecklistIds: []
@@ -919,6 +952,7 @@ Panel {
     var isPinned = t && t.id === root.pinnedId
     return [
       { icon: "\uf08d", label: isPinned ? "Unpin" : "Pin", action: "pin" },
+      { icon: "\uf04b", label: root.autopin ? "Autopin \u2713" : "Autopin", action: "autopin" },
       { icon: "\uf073", label: "When\u2026", action: "when" },
       { icon: "\uf064", label: "Move to\u2026", action: "move" },
       { icon: "\uf1f8", label: "Delete", action: "delete" }
@@ -2228,6 +2262,7 @@ Panel {
                       var index = root.contextTaskIndex
                       root.closeContextMenu()
                       if (ctxRow.modelData.action === "pin") root.togglePin(index)
+                      else if (ctxRow.modelData.action === "autopin") root.toggleAutopin()
                       else if (ctxRow.modelData.action === "when") root.openWhenOverlay(index)
                       else if (ctxRow.modelData.action === "move") root.openMoveOverlay(index)
                       else root.requestDeleteTask(index)
