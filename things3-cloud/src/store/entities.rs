@@ -119,6 +119,12 @@ impl ChecklistItem {
     }
 }
 
+// How many days past its staged date a Someday task still counts as freshly
+// arrived into Today (see Task::is_today). Generous enough to survive a
+// machine being offline over a weekend, tight enough to never resurrect
+// month/year-old leftover dates from tasks long since moved back to Someday.
+const STAGED_ARRIVAL_GRACE_DAYS: i64 = 3;
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ProjectProgress {
     pub total: i32,
@@ -188,10 +194,20 @@ impl Task {
         let Some(start_date) = self.start_date else {
             return false;
         };
-        if self.start != TaskStart::Anytime && self.start != TaskStart::Someday {
-            return false;
+        match self.start {
+            TaskStart::Anytime => start_date <= *today,
+            // A Someday task can carry a genuinely fresh staged date — Things
+            // moves these into Today the day they arrive — but start_date can
+            // just as easily be ancient leftover cruft from before the task
+            // was dragged back to Someday, which the official apps never
+            // resurface. Trust it only for a few days after arrival; older
+            // than that it's stale data, not a live "due today" signal.
+            TaskStart::Someday => {
+                let days_since_arrival = (*today - start_date).num_days();
+                (0..=STAGED_ARRIVAL_GRACE_DAYS).contains(&days_since_arrival)
+            }
+            _ => false,
         }
-        start_date <= *today
     }
 
     pub fn is_staged_for_today(&self, today: &DateTime<Utc>) -> bool {
