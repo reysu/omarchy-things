@@ -288,6 +288,32 @@ impl ThingsStore {
         out
     }
 
+    // A task's own project (or area) can be trashed, completed, canceled, or
+    // itself parked in the future — Things hides the task from every active
+    // view in that case even though the task's own status is still
+    // "incomplete". Shared by today() and anytime() so both agree with the
+    // real apps the same way.
+    pub fn project_visible(&self, task: &Task, today: &DateTime<Utc>) -> bool {
+        let Some(project_uuid) = self.effective_project_uuid(task) else {
+            return true;
+        };
+        let Some(project) = self.tasks_by_uuid.get(&project_uuid) else {
+            return true;
+        };
+        if project.trashed || project.status != TaskStatus::Incomplete {
+            return false;
+        }
+        if project.start == TaskStart::Someday {
+            return false;
+        }
+        if let Some(start_date) = project.start_date
+            && start_date > *today
+        {
+            return false;
+        }
+        true
+    }
+
     pub fn today(&self, today: &DateTime<Utc>) -> Vec<Task> {
         let mut out: Vec<Task> = self
             .tasks_by_uuid
@@ -300,6 +326,7 @@ impl ThingsStore {
                     && !t.title.trim().is_empty()
                     && t.entity == "Task6"
                     && t.is_today(today)
+                    && self.project_visible(t, today)
             })
             .cloned()
             .collect();
@@ -338,27 +365,6 @@ impl ThingsStore {
     }
 
     pub fn anytime(&self, today: &DateTime<Utc>) -> Vec<Task> {
-        let project_visible = |task: &Task, store: &ThingsStore| {
-            let Some(project_uuid) = store.effective_project_uuid(task) else {
-                return true;
-            };
-            let Some(project) = store.tasks_by_uuid.get(&project_uuid) else {
-                return true;
-            };
-            if project.trashed || project.status != TaskStatus::Incomplete {
-                return false;
-            }
-            if project.start == TaskStart::Someday {
-                return false;
-            }
-            if let Some(start_date) = project.start_date
-                && start_date > *today
-            {
-                return false;
-            }
-            true
-        };
-
         let mut out: Vec<Task> = self
             .tasks_by_uuid
             .values()
@@ -371,7 +377,7 @@ impl ThingsStore {
                     && !t.title.trim().is_empty()
                     && t.entity == "Task6"
                     && (t.start_date.is_none() || t.start_date <= Some(*today))
-                    && project_visible(t, self)
+                    && self.project_visible(t, today)
             })
             .cloned()
             .collect();

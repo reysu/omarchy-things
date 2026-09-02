@@ -38,6 +38,7 @@ impl Command for TodayArgs {
                     && !t.title.trim().is_empty()
                     && t.entity == "Task6"
                     && (t.is_today(&today) || t.evening)
+                    && store.project_visible(t, &today)
             })
             .collect();
 
