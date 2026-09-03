@@ -47,7 +47,11 @@ pub struct TaskStateProps {
     pub sort_index: i32,
     pub today_sort_index: i32,
     pub recurrence_rule: Option<RecurrenceRule>,
+    pub repeater: Option<serde_json::Value>,
     pub recurrence_template_ids: Vec<ThingsId>,
+    pub instance_creation_start_date: Option<i64>,
+    pub after_completion_reference_date: Option<i64>,
+    pub instance_creation_count: i32,
     pub instance_creation_paused: bool,
     pub evening_bit: i32,
     pub leaves_tombstone: bool,
@@ -60,6 +64,7 @@ pub struct TaskStateProps {
 pub struct ChecklistItemStateProps {
     pub title: String,
     pub status: TaskStatus,
+    pub stop_date: Option<f64>,
     pub task_ids: Vec<ThingsId>,
     pub sort_index: i32,
 }
@@ -125,14 +130,14 @@ pub struct ProjectProgress {
     pub done: i32,
 }
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Task {
     pub uuid: ThingsId,
     pub title: String,
     pub status: TaskStatus,
     pub start: TaskStart,
     pub item_type: TaskType,
-    pub entity: String,
+    pub entity: EntityType,
     pub notes: Option<String>,
     pub project: Option<ThingsId>,
     pub area: Option<ThingsId>,
@@ -151,6 +156,7 @@ pub struct Task {
     pub instance_creation_paused: bool,
     pub evening: bool,
     pub recurrence_rule: Option<RecurrenceRule>,
+    pub repeater: Option<serde_json::Value>,
     pub recurrence_templates: Vec<ThingsId>,
     pub checklist_items: Vec<ChecklistItem>,
 }
@@ -208,6 +214,10 @@ impl Task {
     pub fn is_recurrence_instance(&self) -> bool {
         self.recurrence_rule.is_none() && !self.recurrence_templates.is_empty()
     }
+
+    pub fn has_repeater(&self) -> bool {
+        self.repeater.is_some()
+    }
 }
 
 fn i64_to_f64_opt(value: Option<i64>) -> Option<f64> {
@@ -237,7 +247,11 @@ impl From<TaskProps> for TaskStateProps {
             sort_index: props.sort_index,
             today_sort_index: props.today_sort_index,
             recurrence_rule: props.recurrence_rule,
+            repeater: props.repeater,
             recurrence_template_ids: props.recurrence_template_ids,
+            instance_creation_start_date: props.instance_creation_start_date,
+            after_completion_reference_date: props.after_completion_reference_date,
+            instance_creation_count: props.instance_creation_count,
             instance_creation_paused: props.instance_creation_paused,
             evening_bit: props.evening_bit,
             leaves_tombstone: props.leaves_tombstone,
@@ -253,6 +267,7 @@ impl From<ChecklistItemProps> for ChecklistItemStateProps {
         Self {
             title: props.title,
             status: props.status,
+            stop_date: props.stop_date,
             task_ids: props.task_ids,
             sort_index: props.sort_index,
         }
@@ -288,6 +303,9 @@ impl From<ChecklistItemPatch> for ChecklistItemStateProps {
         }
         if let Some(status) = patch.status {
             item.status = status;
+        }
+        if let Some(stop_date) = patch.stop_date {
+            item.stop_date = stop_date;
         }
         if let Some(task_ids) = patch.task_ids {
             item.task_ids = task_ids;
@@ -368,7 +386,7 @@ impl From<TaskPatch> for TaskStateProps {
             task.evening_bit = evening_bit;
         }
         if let Some(modification_date) = patch.modification_date {
-            task.modification_date = Some(modification_date);
+            task.modification_date = modification_date;
         }
         if let Some(item_type) = patch.item_type {
             task.item_type = item_type;
@@ -391,8 +409,20 @@ impl From<TaskPatch> for TaskStateProps {
         if let Some(recurrence_rule) = patch.recurrence_rule {
             task.recurrence_rule = recurrence_rule;
         }
+        if let Some(repeater) = patch.repeater {
+            task.repeater = repeater;
+        }
         if let Some(recurrence_template_ids) = patch.recurrence_template_ids {
             task.recurrence_template_ids = recurrence_template_ids;
+        }
+        if let Some(instance_creation_start_date) = patch.instance_creation_start_date {
+            task.instance_creation_start_date = instance_creation_start_date;
+        }
+        if let Some(after_completion_reference_date) = patch.after_completion_reference_date {
+            task.after_completion_reference_date = after_completion_reference_date;
+        }
+        if let Some(instance_creation_count) = patch.instance_creation_count {
+            task.instance_creation_count = instance_creation_count;
         }
         if let Some(instance_creation_paused) = patch.instance_creation_paused {
             task.instance_creation_paused = instance_creation_paused;

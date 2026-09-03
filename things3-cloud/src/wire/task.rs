@@ -13,7 +13,7 @@ use crate::{
     },
 };
 
-/// Task wire properties (`p` fields for `Task6`).
+/// Task wire properties (`p` fields for task entities through `Task7`).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct TaskProps {
     /// `tt`: title.
@@ -92,7 +92,7 @@ pub struct TaskProps {
     )]
     pub due_date_offset: i32,
 
-    /// `rr`: recurrence rule object (`null` for non-recurring).
+    /// `rr`: legacy V1 recurrence rule object (`null` for non-recurring).
     #[serde(rename = "rr", default)]
     pub recurrence_rule: Option<RecurrenceRule>,
 
@@ -100,29 +100,29 @@ pub struct TaskProps {
     #[serde(rename = "rmd", default)]
     pub reminder_metadata: Option<Value>,
 
-    /// `rp`: reminder payload (observed as null for normal task/project creates).
+    /// `rp`: Task7 repeater payload.
     #[serde(rename = "rp", default)]
-    pub reminder_payload: Option<Value>,
+    pub repeater: Option<Value>,
 
     /// `rt`: recurrence template IDs (instance -> template link).
     #[serde(rename = "rt", default)]
     pub recurrence_template_ids: Vec<ThingsId>,
 
-    /// `icsd`: instance creation suppressed date timestamp for recurrence templates.
+    /// `icsd`: legacy V1 instance-creation start day timestamp.
     #[serde(rename = "icsd", default)]
-    pub instance_creation_suppressed_date: Option<i64>,
+    pub instance_creation_start_date: Option<i64>,
 
     /// `acrd`: after-completion reference date timestamp for recurrence scheduling.
     #[serde(rename = "acrd", default)]
     pub after_completion_reference_date: Option<i64>,
 
-    /// `icc`: checklist item count.
+    /// `icc`: legacy V1 instance-creation count.
     #[serde(
         rename = "icc",
         default,
         deserialize_with = "deserialize_default_on_null"
     )]
-    pub checklist_item_count: i32,
+    pub instance_creation_count: i32,
 
     /// `icp`: instance creation paused flag.
     #[serde(rename = "icp", default)]
@@ -269,9 +269,40 @@ pub struct TaskPatch {
     )]
     pub recurrence_rule: Option<Option<RecurrenceRule>>,
 
+    /// `rp`: Task7 repeater payload (`null` clears the repeater).
+    #[serde(
+        rename = "rp",
+        default,
+        deserialize_with = "deserialize_optional_field",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub repeater: Option<Option<Value>>,
+
     /// `rt`: recurrence template IDs.
     #[serde(rename = "rt", skip_serializing_if = "Option::is_none")]
     pub recurrence_template_ids: Option<Vec<ThingsId>>,
+
+    /// `icsd`: legacy V1 instance-creation start day timestamp.
+    #[serde(
+        rename = "icsd",
+        default,
+        deserialize_with = "deserialize_optional_field",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub instance_creation_start_date: Option<Option<i64>>,
+
+    /// `acrd`: after-completion reference date timestamp.
+    #[serde(
+        rename = "acrd",
+        default,
+        deserialize_with = "deserialize_optional_field",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub after_completion_reference_date: Option<Option<i64>>,
+
+    /// `icc`: legacy V1 instance-creation count.
+    #[serde(rename = "icc", skip_serializing_if = "Option::is_none")]
+    pub instance_creation_count: Option<i32>,
 
     /// `icp`: instance creation paused.
     #[serde(rename = "icp", skip_serializing_if = "Option::is_none")]
@@ -295,8 +326,13 @@ pub struct TaskPatch {
     pub creation_date: Option<Option<f64>>,
 
     /// `md`: modification timestamp.
-    #[serde(rename = "md", skip_serializing_if = "Option::is_none")]
-    pub modification_date: Option<f64>,
+    #[serde(
+        rename = "md",
+        default,
+        deserialize_with = "deserialize_optional_field",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub modification_date: Option<Option<f64>>,
 }
 
 impl TaskPatch {
@@ -318,7 +354,11 @@ impl TaskPatch {
             && self.sort_index.is_none()
             && self.today_sort_index.is_none()
             && self.recurrence_rule.is_none()
+            && self.repeater.is_none()
             && self.recurrence_template_ids.is_none()
+            && self.instance_creation_start_date.is_none()
+            && self.after_completion_reference_date.is_none()
+            && self.instance_creation_count.is_none()
             && self.instance_creation_paused.is_none()
             && self.leaves_tombstone.is_none()
             && self.trashed.is_none()
@@ -364,6 +404,7 @@ pub enum TaskType {
     Unknown(i32),
 }
 
+#[allow(clippy::derivable_impls)]
 impl Default for TaskType {
     fn default() -> Self {
         Self::Todo
@@ -400,6 +441,7 @@ pub enum TaskStatus {
     Unknown(i32),
 }
 
+#[allow(clippy::derivable_impls)]
 impl Default for TaskStatus {
     fn default() -> Self {
         Self::Incomplete
@@ -436,6 +478,7 @@ pub enum TaskStart {
     Unknown(i32),
 }
 
+#[allow(clippy::derivable_impls)]
 impl Default for TaskStart {
     fn default() -> Self {
         Self::Inbox

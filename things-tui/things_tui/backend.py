@@ -116,7 +116,15 @@ def logbook(days: int | None = 60) -> list[Task]:
 
 
 def project_tasks(project_id: str) -> list[Task]:
-    return _run_json(["project", project_id])
+    tasks = _run_json(["project", project_id])
+    # The project JSON view contains to-dos and their heading links, but not
+    # empty heading records. Merge the real headings so the TUI can render
+    # separators before they contain any to-dos.
+    return tasks + headings(project_id)
+
+
+def headings(project_id: str) -> list[Task]:
+    return _run_json(["headings", "list", project_id])
 
 
 def area_items(area_id: str) -> list[Task]:
@@ -269,6 +277,28 @@ def new_project(
     out = _run(args, sync=True)
     _settle()
     return _created_id(out)
+
+
+def new_heading(
+    title: str,
+    *,
+    project: str,
+    before: str | None = None,
+    after: str | None = None,
+) -> str | None:
+    args = ["headings", "new", title, "--project", project]
+    if before:
+        args += ["--before", before]
+    if after:
+        args += ["--after", after]
+    out = _run(args, sync=True)
+    _settle()
+    return _created_id(out)
+
+
+def edit_heading(heading_id: str, *, title: str) -> None:
+    _run(["headings", "edit", heading_id, "--title", title], sync=True)
+    _settle()
 
 
 def edit_task(

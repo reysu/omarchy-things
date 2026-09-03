@@ -224,12 +224,19 @@ impl Serialize for WireObject {
 impl<'de> Deserialize<'de> for WireObject {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let raw = RawWireObject::deserialize(deserializer)?;
-        let payload = WireObject::properties_from(
+        let properties = raw.properties;
+        let parsed = WireObject::properties_from(
             raw.operation_type,
             raw.entity_type.as_ref(),
-            raw.properties,
-        )
-        .map_err(serde::de::Error::custom)?;
+            properties.clone(),
+        );
+        let payload = match parsed {
+            Ok(payload) => payload,
+            Err(_) if raw.entity_type.as_ref().is_some_and(EntityType::is_task) => {
+                Properties::Unknown(properties)
+            }
+            Err(error) => return Err(serde::de::Error::custom(error)),
+        };
         Ok(Self {
             operation_type: raw.operation_type,
             entity_type: raw.entity_type,
@@ -285,6 +292,7 @@ pub enum OperationType {
     Unknown(i32),
 }
 
+#[allow(clippy::derivable_impls)]
 impl Default for OperationType {
     fn default() -> Self {
         Self::Create
@@ -301,10 +309,9 @@ pub enum EntityType {
     Task3,
     /// Task entity (legacy version).
     Task4,
-    /// Task/project/heading entity (current observed version).
+    /// Task/project/heading entity (legacy version).
     Task6,
-    /// Task entity, schema revision 7. Emitted by newer Things clients; the
-    /// property set is identical to `Task6`, so it parses with the same code.
+    /// Task/project/heading entity (current version).
     Task7,
 
     /// Checklist item entity (legacy version).
@@ -339,6 +346,30 @@ pub enum EntityType {
     /// Unknown entity name preserved for forward compatibility.
     #[strum(default, to_string = "{0}")]
     Unknown(String),
+}
+
+impl EntityType {
+    pub fn is_task(&self) -> bool {
+        matches!(self, Self::Task3 | Self::Task4 | Self::Task6 | Self::Task7)
+    }
+
+    pub fn can_upgrade_to_task7(&self) -> bool {
+        matches!(self, Self::Task6 | Self::Task7)
+    }
+
+    pub fn is_task_family(&self) -> bool {
+        if self.is_task() {
+            return true;
+        }
+
+        let Self::Unknown(name) = self else {
+            return false;
+        };
+
+        name.strip_prefix("Task").is_some_and(|version| {
+            !version.is_empty() && version.chars().all(|c| c.is_ascii_digit())
+        })
+    }
 }
 
 impl From<String> for EntityType {

@@ -1,0 +1,124 @@
+```trycmd
+$ run.sh things3 --json headings list KGvAPpMrzHAKMdgMiERP1V
+[
+  {
+    "id": "A7h5eCi24RvAWKC3Hv3muf",
+    "short_id": "A",
+    "title": "Design",
+    "type": "heading",
+    "index": 10,
+    "project": {
+      "id": "KGvAPpMrzHAKMdgMiERP1V",
+      "short_id": "K",
+      "title": "Roadmap"
+    }
+  },
+  {
+    "id": "3H9jsMx3kYMrQ4M7DReSRn",
+    "short_id": "3",
+    "title": "Build",
+    "type": "heading",
+    "index": 20,
+    "project": {
+      "id": "KGvAPpMrzHAKMdgMiERP1V",
+      "short_id": "K",
+      "title": "Roadmap"
+    }
+  }
+]
+
+$ run.sh things3 --now-ts 1700000222.0 headings new 'Launch' --project KGvAPpMrzHAKMdgMiERP1V
+✓ Created Launch  [..]
+{
+  "ancestor_index": 0,
+  "changes": {
+    "[..]": {
+      "e": "Task7",
+      "p": {
+        "acrd": null,
+        "agr": [],
+        "ar": [],
+        "ato": null,
+        "cd": 1700000222.0,
+        "dd": null,
+        "dds": null,
+        "dl": [],
+        "do": 0,
+        "icc": 0,
+        "icp": false,
+        "icsd": null,
+        "ix": 21,
+        "lai": null,
+        "lt": false,
+        "md": 1700000222.0,
+        "nt": {
+          "_t": "tx",
+          "ch": 0,
+          "t": 1,
+          "v": ""
+        },
+        "pr": [
+          "KGvAPpMrzHAKMdgMiERP1V"
+        ],
+        "rmd": null,
+        "rp": null,
+        "rr": null,
+        "rt": [],
+        "sb": 0,
+        "sp": null,
+        "sr": null,
+        "ss": 0,
+        "st": 1,
+        "tg": [],
+        "ti": 0,
+        "tir": null,
+        "tp": 2,
+        "tr": false,
+        "tt": "Launch",
+        "xx": {
+          "_t": "oo",
+          "sn": {}
+        }
+      },
+      "t": 0
+    }
+  }
+}
+
+$ run.sh things3 --now-ts 1700000222.0 headings edit A7h5eCi24RvAWKC3Hv3muf --title Discovery
+✓ Edited Discovery  A7h5eCi24RvAWKC3Hv3muf
+{
+  "ancestor_index": 0,
+  "changes": {
+    "A7h5eCi24RvAWKC3Hv3muf": {
+      "e": "Task7",
+      "p": {
+        "md": 1700000222.0,
+        "tt": "Discovery"
+      },
+      "t": 1
+    }
+  }
+}
+
+$ run.sh things3 --now-ts 1700000222.0 edit MpkEei6ybkFS2n6SXvwfLf --move 3H9jsMx3kYMrQ4M7DReSRn
+✓ Edited Ship feature  MpkEei6ybkFS2n6SXvwfLf (move=3H9jsMx3kYMrQ4M7DReSRn)
+{
+  "ancestor_index": 0,
+  "changes": {
+    "MpkEei6ybkFS2n6SXvwfLf": {
+      "e": "Task7",
+      "p": {
+        "agr": [
+          "3H9jsMx3kYMrQ4M7DReSRn"
+        ],
+        "ar": [],
+        "md": 1700000222.0,
+        "pr": []
+      },
+      "t": 1
+    }
+  }
+}
+
+```

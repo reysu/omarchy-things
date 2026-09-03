@@ -21,8 +21,10 @@ fn apply_task_patch(task: &mut TaskStateProps, patch: TaskPatch) {
     if let Some(title) = patch.title {
         task.title = title;
     }
-    if let Some(notes) = patch.notes {
-        task.notes = notes.to_plain_text();
+    if let Some(notes) = patch.notes
+        && let Ok(updated) = notes.apply_to(task.notes.as_deref())
+    {
+        task.notes = updated;
     }
     if let Some(start_location) = patch.start_location {
         task.start_location = start_location;
@@ -49,7 +51,7 @@ fn apply_task_patch(task: &mut TaskStateProps, patch: TaskPatch) {
         task.evening_bit = evening_bit;
     }
     if let Some(modification_date) = patch.modification_date {
-        task.modification_date = Some(modification_date);
+        task.modification_date = modification_date;
     }
 
     if let Some(item_type) = patch.item_type {
@@ -73,8 +75,20 @@ fn apply_task_patch(task: &mut TaskStateProps, patch: TaskPatch) {
     if let Some(recurrence_rule) = patch.recurrence_rule {
         task.recurrence_rule = recurrence_rule;
     }
+    if let Some(repeater) = patch.repeater {
+        task.repeater = repeater;
+    }
     if let Some(recurrence_template_ids) = patch.recurrence_template_ids {
         task.recurrence_template_ids = recurrence_template_ids;
+    }
+    if let Some(instance_creation_start_date) = patch.instance_creation_start_date {
+        task.instance_creation_start_date = instance_creation_start_date;
+    }
+    if let Some(after_completion_reference_date) = patch.after_completion_reference_date {
+        task.after_completion_reference_date = after_completion_reference_date;
+    }
+    if let Some(instance_creation_count) = patch.instance_creation_count {
+        task.instance_creation_count = instance_creation_count;
     }
     if let Some(instance_creation_paused) = patch.instance_creation_paused {
         task.instance_creation_paused = instance_creation_paused;
@@ -96,6 +110,9 @@ fn apply_checklist_patch(item: &mut ChecklistItemStateProps, patch: ChecklistIte
     }
     if let Some(status) = patch.status {
         item.status = status;
+    }
+    if let Some(stop_date) = patch.stop_date {
+        item.stop_date = stop_date;
     }
     if let Some(task_ids) = patch.task_ids {
         item.task_ids = task_ids;
@@ -164,6 +181,7 @@ fn apply_update_payload(existing: &mut StateObject, payload: Properties) {
         (StateProperties::Tag(tag), Properties::TagUpdate(patch)) => {
             apply_tag_patch(tag, patch);
         }
+        (_, Properties::Ignored(_) | Properties::Unknown(_)) => {}
         (_, payload) => {
             existing.properties = payload.into();
         }
@@ -181,9 +199,8 @@ pub fn fold_item(item: WireItem, state: &mut RawState) {
             }
             OperationType::Update => {
                 if let Some(existing) = state.get_mut(&uuid) {
-                    match obj.properties() {
-                        Ok(payload) => apply_update_payload(existing, payload),
-                        Err(_) => existing.properties = StateProperties::Other,
+                    if let Ok(payload) = obj.properties() {
+                        apply_update_payload(existing, payload);
                     }
                     if obj.entity_type.is_some() {
                         existing.entity_type = obj.entity_type.clone();
@@ -206,4 +223,185 @@ pub fn fold_items(items: impl IntoIterator<Item = WireItem>) -> RawState {
         fold_item(item, &mut state);
     }
     state
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        store::ThingsStore,
+        wire::{
+            task::{TaskStatus, TaskType},
+            wire_object::EntityType,
+        },
+    };
+
+    const TASK_ID: &str = "A7h5eCi24RvAWKC3Hv3muf";
+
+    fn wire_item(json: &str) -> WireItem {
+        serde_json::from_str(json).expect("test wire item should deserialize")
+    }
+
+    fn task6_create() -> WireItem {
+        wire_item(&format!(
+            r#"{{"{TASK_ID}":{{"t":0,"e":"Task6","p":{{"tt":"Send tracking number","tp":0,"ss":0,"st":1,"cd":1.0,"md":1.0}}}}}}"#
+        ))
+    }
+
+    #[test]
+    fn task7_update_preserves_task_state_and_promotes_entity() {
+        let update = wire_item(&format!(
+            r#"{{"{TASK_ID}":{{"t":1,"e":"Task7","p":{{"ss":0,"sp":null,"md":2.0}}}}}}"#
+        ));
+        let state = fold_items([task6_create(), update]);
+        let task_id = TASK_ID.parse::<ThingsId>().expect("valid task id");
+        let object = state.get(&task_id).expect("task state should remain");
+
+        assert_eq!(object.entity_type, Some(EntityType::Task7));
+        let StateProperties::Task(properties) = &object.properties else {
+            panic!("Task7 update replaced typed task state");
+        };
+        assert_eq!(properties.title, "Send tracking number");
+        assert_eq!(properties.status, TaskStatus::Incomplete);
+        assert_eq!(properties.modification_date, Some(2.0));
+
+        let store = ThingsStore::from_raw_state(&state);
+        let task = store
+            .get_task(TASK_ID)
+            .expect("Task7 task should be visible");
+        assert_eq!(task.item_type, TaskType::Todo);
+        assert_eq!(task.entity, EntityType::Task7);
+    }
+
+    #[test]
+    fn unknown_future_task_update_does_not_destroy_known_state() {
+        let update = wire_item(&format!(
+            r#"{{"{TASK_ID}":{{"t":1,"e":"Task8","p":{{"future":true}}}}}}"#
+        ));
+        let state = fold_items([task6_create(), update]);
+        let task_id = TASK_ID.parse::<ThingsId>().expect("valid task id");
+        let object = state.get(&task_id).expect("task state should remain");
+
+        assert_eq!(
+            object.entity_type,
+            Some(EntityType::Unknown("Task8".to_string()))
+        );
+        assert!(matches!(object.properties, StateProperties::Task(_)));
+        assert!(
+            ThingsStore::from_raw_state(&state)
+                .get_task(TASK_ID)
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn malformed_task7_patch_is_preserved_as_unknown_and_ignored() {
+        let update = wire_item(&format!(
+            r#"{{"{TASK_ID}":{{"t":1,"e":"Task7","p":{{"ss":"future"}}}}}}"#
+        ));
+        let object = update.get(TASK_ID).expect("Task7 update");
+        assert!(matches!(object.payload, Properties::Unknown(_)));
+
+        let state = fold_items([task6_create(), update]);
+        let task_id = TASK_ID.parse::<ThingsId>().expect("valid task id");
+        let StateProperties::Task(properties) = &state[&task_id].properties else {
+            panic!("malformed Task7 patch replaced typed task state");
+        };
+        assert_eq!(properties.title, "Send tracking number");
+        assert_eq!(properties.status, TaskStatus::Incomplete);
+    }
+
+    #[test]
+    fn structured_note_delta_updates_the_existing_note() {
+        let checksum = crc32fast::hash("café! todo".as_bytes());
+        let create = wire_item(&format!(
+            r#"{{"{TASK_ID}":{{"t":0,"e":"Task6","p":{{"tt":"Write notes","tp":0,"ss":0,"st":1,"nt":{{"_t":"tx","t":1,"ch":0,"v":"café todo"}}}}}}}}"#
+        ));
+        let update = wire_item(&format!(
+            r#"{{"{TASK_ID}":{{"t":1,"e":"Task7","p":{{"nt":{{"_t":"tx","t":2,"ps":[{{"p":5,"l":0,"r":"!","ch":{checksum}}}]}}}}}}}}"#
+        ));
+
+        let state = fold_items([create, update]);
+        let task_id = TASK_ID.parse::<ThingsId>().expect("valid task id");
+        let StateProperties::Task(properties) = &state[&task_id].properties else {
+            panic!("task state should remain typed");
+        };
+
+        assert_eq!(properties.notes.as_deref(), Some("café! todo"));
+    }
+
+    #[test]
+    fn invalid_structured_note_delta_preserves_the_existing_note() {
+        let create = wire_item(&format!(
+            r#"{{"{TASK_ID}":{{"t":0,"e":"Task6","p":{{"tt":"Write notes","tp":0,"ss":0,"st":1,"nt":{{"_t":"tx","t":1,"ch":0,"v":"original"}}}}}}}}"#
+        ));
+        let update = wire_item(&format!(
+            r#"{{"{TASK_ID}":{{"t":1,"e":"Task7","p":{{"nt":{{"_t":"tx","t":2,"ps":[{{"p":0,"l":8,"r":"corrupt","ch":0}}]}}}}}}}}"#
+        ));
+
+        let state = fold_items([create, update]);
+        let task_id = TASK_ID.parse::<ThingsId>().expect("valid task id");
+        let StateProperties::Task(properties) = &state[&task_id].properties else {
+            panic!("task state should remain typed");
+        };
+
+        assert_eq!(properties.notes.as_deref(), Some("original"));
+    }
+
+    #[test]
+    fn recurrence_maintenance_updates_are_folded_into_task_state() {
+        let create = wire_item(&format!(
+            r#"{{"{TASK_ID}":{{"t":0,"e":"Task6","p":{{"tt":"Repeat","tp":0,"ss":0,"st":1,"icsd":10,"acrd":20,"icc":2}}}}}}"#
+        ));
+        let update = wire_item(&format!(
+            r#"{{"{TASK_ID}":{{"t":1,"e":"Task6","p":{{"icsd":11,"acrd":null,"icc":3}}}}}}"#
+        ));
+
+        let state = fold_items([create, update]);
+        let task_id = TASK_ID.parse::<ThingsId>().expect("valid task id");
+        let StateProperties::Task(properties) = &state[&task_id].properties else {
+            panic!("task state should remain typed");
+        };
+
+        assert_eq!(properties.instance_creation_start_date, Some(11));
+        assert_eq!(properties.after_completion_reference_date, None);
+        assert_eq!(properties.instance_creation_count, 3);
+    }
+
+    #[test]
+    fn explicit_null_modification_date_clears_task_state() {
+        let update = wire_item(&format!(
+            r#"{{"{TASK_ID}":{{"t":1,"e":"Task7","p":{{"md":null}}}}}}"#
+        ));
+
+        let state = fold_items([task6_create(), update]);
+        let task_id = TASK_ID.parse::<ThingsId>().expect("valid task id");
+        let StateProperties::Task(properties) = &state[&task_id].properties else {
+            panic!("task state should remain typed");
+        };
+
+        assert_eq!(properties.modification_date, None);
+    }
+
+    #[test]
+    fn checklist_stop_date_updates_are_folded_and_clearable() {
+        let create = wire_item(&format!(
+            r#"{{"{TASK_ID}":{{"t":0,"e":"ChecklistItem3","p":{{"tt":"Step","ss":0,"sp":10.0,"ts":["{TASK_ID}"],"ix":0}}}}}}"#
+        ));
+        let set = wire_item(&format!(
+            r#"{{"{TASK_ID}":{{"t":1,"e":"ChecklistItem3","p":{{"ss":3,"sp":11.0}}}}}}"#
+        ));
+        let clear = wire_item(&format!(
+            r#"{{"{TASK_ID}":{{"t":1,"e":"ChecklistItem3","p":{{"ss":0,"sp":null}}}}}}"#
+        ));
+
+        let state = fold_items([create, set, clear]);
+        let item_id = TASK_ID.parse::<ThingsId>().expect("valid checklist id");
+        let StateProperties::ChecklistItem(properties) = &state[&item_id].properties else {
+            panic!("checklist state should remain typed");
+        };
+
+        assert_eq!(properties.status, TaskStatus::Incomplete);
+        assert_eq!(properties.stop_date, None);
+    }
 }
