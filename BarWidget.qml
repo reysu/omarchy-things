@@ -109,27 +109,14 @@ BarWidget {
     function cycle(): void { root.cycleView() }
   }
 
-  // Reserves room for the widest realistic label (" 999") so the pill's
-  // own width — and with it the popup's centered-under-icon anchor point —
-  // never shifts as the count's digit-length changes. Horizontal bar mode
-  // only; vertical mode already uses a fixed icon-slot width.
-  TextMetrics {
-    id: widthMetrics
-    font.family: button.fontFamily
-    font.pixelSize: button.fontSize
-    text: " 999"
-  }
-
   WidgetButton {
     id: button
     anchors.fill: parent
     bar: root.bar
     text: root.displayLabel
     tooltipText: root.tooltip
-    horizontalMargin: 8.75
+    horizontalMargin: 5
     verticalPadding: 8.75
-    // With a pin the label is long and stable anyway — let it size itself.
-    fixedWidth: (root.vertical || root.pinnedTitle !== "") ? -1 : Math.ceil(widthMetrics.width + Style.spaceReal(horizontalMargin) * 2)
 
     onPressed: function(b) {
       if (b === Qt.MiddleButton) root.cycleView()
